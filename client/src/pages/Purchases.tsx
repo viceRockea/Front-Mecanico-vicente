@@ -2,7 +2,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { FileSpreadsheet, Plus, Trash2, Search, Loader2, ShoppingCart } from "lucide-react";
+import { Plus, Trash2, Search, Loader2, ShoppingCart } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePurchases, useDeletePurchase } from "@/hooks/use-purchases";
@@ -18,10 +18,10 @@ export default function Purchases() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [supplierFilter, setSupplierFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
-  const [costFilter, setCostFilter] = useState("all");
+  const [yearFilter, setYearFilter] = useState("all");
   const { data: allPurchases = [], isLoading } = usePurchases();
   const { toast } = useToast();
-  
+
   // Verificar si es ADMIN (compatible con ambos formatos)
   const isAdmin = user?.role === "ADMIN" || user?.role === "administrador";
   if (!isAdmin) {
@@ -34,57 +34,41 @@ export default function Purchases() {
       </div>
     );
   }
-  
+
   // Filtrado de compras
   let purchases = allPurchases.filter(p => {
-    const matchesSearch = searchValue === "" || 
-                         p.proveedor.nombre.toLowerCase().includes(searchValue.toLowerCase()) ||
-                         (p.numero_factura?.toLowerCase() || "").includes(searchValue.toLowerCase());
-    
-    const matchesSupplier = supplierFilter === "all" || 
-                           p.proveedor.nombre.toLowerCase().includes(supplierFilter.toLowerCase());
-    
-    const matchesMonth = monthFilter === "all" || 
-                        new Date(p.fecha).getMonth().toString() === monthFilter;
-    
-    const matchesCost = costFilter === "all" ||
-                       (costFilter === "range1" && p.monto_total <= 500000) ||
-                       (costFilter === "range2" && p.monto_total > 500000 && p.monto_total <= 1500000) ||
-                       (costFilter === "range3" && p.monto_total > 1500000);
-    
-    return matchesSearch && matchesSupplier && matchesMonth && matchesCost;
+    const matchesSearch = searchValue === "" ||
+      p.proveedor.nombre.toLowerCase().includes(searchValue.toLowerCase()) ||
+      (p.numero_factura?.toLowerCase() || "").includes(searchValue.toLowerCase());
+
+    const matchesSupplier = supplierFilter === "all" ||
+      p.proveedor.nombre.toLowerCase().includes(supplierFilter.toLowerCase());
+
+    const date = new Date(p.fecha);
+    const matchesMonth = monthFilter === "all" || date.getMonth().toString() === monthFilter;
+    const matchesYear = yearFilter === "all" || date.getFullYear().toString() === yearFilter;
+
+    return matchesSearch && matchesSupplier && matchesMonth && matchesYear;
   });
 
-  // Ordenar por fecha descendente o por costo según filtro
-  if (costFilter === "asc") {
-    purchases = [...purchases].sort((a, b) => a.monto_total - b.monto_total);
-  } else if (costFilter === "desc") {
-    purchases = [...purchases].sort((a, b) => b.monto_total - a.monto_total);
-  } else {
-    purchases = [...purchases].sort((a, b) => 
-      new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
-    );
-  }
+  // Ordenar por fecha descendente
+  purchases = [...purchases].sort((a, b) =>
+    new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+  );
 
   return (
     <div className="space-y-6">
-      <PageHeader 
-        title="Gestión de Compras" 
+      <PageHeader
+        title="Gestión de Compras"
         description="Registre nuevas adquisiciones de stock y gestione proveedores."
         action={
-          <div className="flex gap-2">
-            <Button variant="outline" className="btn-pill border-slate-300">
-              <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
-              Importar Excel
-            </Button>
-            <Button 
-              className="btn-pill bg-primary shadow-lg shadow-primary/20"
-              onClick={() => setLocation("/purchases/create")}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Nueva Compra
-            </Button>
-          </div>
+          <Button
+            className="btn-pill bg-primary shadow-lg shadow-primary/20"
+            onClick={() => setLocation("/purchases/create")}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Nueva Compra
+          </Button>
         }
       />
 
@@ -93,7 +77,7 @@ export default function Purchases() {
         {!searchFocused && !searchValue && (
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
         )}
-        <Input 
+        <Input
           placeholder=""
           value={searchValue}
           onChange={(e) => setSearchValue(e.target.value)}
@@ -140,17 +124,15 @@ export default function Purchases() {
               <SelectItem value="11">Diciembre</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={costFilter} onValueChange={setCostFilter}>
-            <SelectTrigger className="w-[200px] bg-slate-50 border-slate-200">
-              <SelectValue placeholder="Costo" />
+          <Select value={yearFilter} onValueChange={setYearFilter}>
+            <SelectTrigger className="w-[120px] bg-slate-50 border-slate-200">
+              <SelectValue placeholder="Año" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos los Costos</SelectItem>
-              <SelectItem value="asc">Menor a Mayor</SelectItem>
-              <SelectItem value="desc">Mayor a Menor</SelectItem>
-              <SelectItem value="range1">Hasta $500.000</SelectItem>
-              <SelectItem value="range2">$500.000 - $1.500.000</SelectItem>
-              <SelectItem value="range3">Más de $1.500.000</SelectItem>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="2024">2024</SelectItem>
+              <SelectItem value="2025">2025</SelectItem>
+              <SelectItem value="2026">2026</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -195,7 +177,7 @@ export default function Purchases() {
           </TableBody>
         </Table>
       </div>
-    </div>
+    </div >
   );
 }
 
@@ -210,23 +192,23 @@ function PurchaseRow({ purchase }: { purchase: any }) {
     const precioUnitario = item.precio_costo_unitario || 0;
     return sum + (cantidad * precioUnitario);
   }, 0);
-  
+
   const ivaCalculado = Math.round(subtotalNeto * 0.19);
   const totalCalculado = subtotalNeto + ivaCalculado;
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    
+
     console.log("🎯 Click en botón eliminar, ID:", purchase.id);
-    
+
     if (confirm(`¿Estás seguro de eliminar la compra de ${purchase.proveedor.nombre}?`)) {
       console.log("✅ Usuario confirmó eliminación");
       deleteMutation.mutate(purchase.id, {
         onSuccess: () => {
           console.log("🎉 Compra eliminada exitosamente");
-          toast({ 
-            title: "Compra eliminada", 
+          toast({
+            title: "Compra eliminada",
             description: `Compra de ${purchase.proveedor.nombre} eliminada correctamente`,
             className: "bg-red-600 text-white border-none"
           });
@@ -250,7 +232,7 @@ function PurchaseRow({ purchase }: { purchase: any }) {
       <TableRow className="table-row-hover group border-b border-slate-100">
         <TableCell className="font-semibold text-slate-900">{purchase.proveedor.nombre}</TableCell>
         <TableCell className="text-slate-600">{new Date(purchase.fecha).toLocaleDateString('es-CL')}</TableCell>
-        <TableCell 
+        <TableCell
           onClick={() => setShowDetails(true)}
           className="cursor-pointer hover:bg-slate-50 transition-colors"
         >
@@ -282,7 +264,7 @@ function PurchaseRow({ purchase }: { purchase: any }) {
               {purchase.proveedor.nombre} • Doc: {purchase.numero_factura || "S/N"} • {new Date(purchase.fecha).toLocaleDateString('es-CL')}
             </div>
           </DialogHeader>
-          
+
           <div className="mt-6 space-y-6">
             {/* Tabla de productos */}
             <div>

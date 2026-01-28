@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCreatePurchase, type CreatePurchaseDTO } from "@/hooks/use-purchases";
 import { useProviders, useCreateProvider } from "@/hooks/use-providers";
 import { useProducts } from "@/hooks/use-products";
@@ -13,7 +14,7 @@ import { useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { cn } from "@/lib/utils";
-import { Check, ChevronsUpDown, Loader2, Trash2, Search, Plus, ArrowLeft, Package } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, Trash2, Search, Plus, ArrowLeft, Package, User, FileText, Calendar, Building2 } from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function CreatePurchase() {
@@ -25,17 +26,18 @@ export default function CreatePurchase() {
   const [selectedProviderName, setSelectedProviderName] = useState<string>("");
   const [productSearchOpen, setProductSearchOpen] = useState(false);
   const [productSearchValue, setProductSearchValue] = useState("");
-  const [productSearchFocused, setProductSearchFocused] = useState(false);
+  const [activeSearchIndex, setActiveSearchIndex] = useState<number | null>(null);
+
   const { mutate: createPurchase, isPending } = useCreatePurchase();
   const { data: products = [] } = useProducts();
   const { data: providers = [] } = useProviders();
-  const createProviderMutation = useCreateProvider();
   const { toast } = useToast();
 
   const form = useForm({
     defaultValues: {
       numero_documento: "",
       tipo_documento: "FACTURA" as const,
+      proveedor_nombre: "",
       items: [] as any[],
     },
   });
@@ -46,7 +48,7 @@ export default function CreatePurchase() {
   });
 
   // Filtrar proveedores por búsqueda
-  const filteredProviders = providers.filter(p => 
+  const filteredProviders = providers.filter(p =>
     p.nombre.toLowerCase().includes(searchProvider.toLowerCase()) ||
     (p.telefono?.toLowerCase() || "").includes(searchProvider.toLowerCase()) ||
     (p.email?.toLowerCase() || "").includes(searchProvider.toLowerCase())
@@ -72,540 +74,469 @@ export default function CreatePurchase() {
   const onSubmit = (data: any) => {
     // Validar que haya un proveedor
     if (!selectedProviderName || !selectedProviderName.trim()) {
-      toast({ 
-        title: "Error", 
-        description: "Debe seleccionar un proveedor",
-        variant: "destructive" 
+      toast({
+        title: "Falta Información",
+        description: "Por favor seleccione un proveedor para continuar.",
+        className: "bg-amber-50 text-amber-900 border-amber-200"
       });
       return;
     }
 
     // Validar que haya al menos un ítem
     if (!data.items || data.items.length === 0) {
-      toast({ 
-        title: "Error", 
-        description: "Debe agregar al menos un producto",
-        variant: "destructive" 
+      toast({
+        title: "Sin Productos",
+        description: "Agregue al menos un producto a la lista.",
+        className: "bg-amber-50 text-amber-900 border-amber-200"
       });
       return;
     }
-    
-    // Construir payload según formato del backend real
+
+    // Construir payload
     const payload: CreatePurchaseDTO = {
       proveedor_nombre: selectedProviderName,
       numero_documento: data.numero_documento?.trim() || undefined,
       tipo_documento: data.tipo_documento || "FACTURA",
-      items: data.items.map((item: any) => {
-        const parsedItem = {
-          sku: item.sku?.trim() || "",
-          nombre: item.nombre?.trim() || "",
-          marca: item.marca?.trim() || undefined,
-          calidad: item.calidad?.trim() || undefined,
-          cantidad: parseInt(item.cantidad) || 1,
-          precio_costo: parseInt(item.precio_costo) || 0,
-          precio_venta_sugerido: 0,
-          modelos_compatibles_ids: undefined,
-        };
-        console.log("📦 Item procesado:", parsedItem);
-        return parsedItem;
-      }),
+      items: data.items.map((item: any) => ({
+        sku: item.sku?.trim() || "",
+        nombre: item.nombre?.trim() || "",
+        marca: item.marca?.trim() || undefined,
+        calidad: item.calidad?.trim() || undefined,
+        cantidad: parseInt(item.cantidad) || 1,
+        precio_costo: parseInt(item.precio_costo) || 0,
+        precio_venta_sugerido: 0,
+        modelos_compatibles_ids: undefined,
+      })),
     };
-    
-    console.log("📦 Payload completo a enviar:", JSON.stringify(payload, null, 2));
-    console.log("📊 Total de items:", payload.items.length);
-    console.log("📊 Total cantidad:", payload.items.reduce((sum, i) => sum + i.cantidad, 0));
-    
+
     createPurchase(payload, {
       onSuccess: () => {
         form.reset();
         setLocation("/purchases");
-        toast({ 
-          title: "Compra registrada", 
-          description: "El stock se actualizará automáticamente",
-          className: "bg-green-600 text-white border-none" 
+        toast({
+          title: "Compra registrada",
+          description: "Inventario actualizado correctamente.",
+          className: "bg-emerald-50 text-emerald-900 border-emerald-200"
         });
       },
       onError: (error: any) => {
-        toast({ 
-          title: "Error al registrar", 
-          description: error.message || "No se pudo registrar la compra",
-          variant: "destructive" 
+        toast({
+          title: "Error al registrar",
+          description: error.message || "Ocurrió un problema al guardar.",
+          className: "bg-rose-50 text-rose-900 border-rose-200"
         });
       }
     });
   };
 
-  const handleAddProductFromSearch = (product: any) => {
-    append({
+  const handleAddProductFromSearch = (product: any, index?: number) => {
+    const newItem = {
       sku: product.sku,
       nombre: product.nombre,
       marca: product.marca || "",
       calidad: "",
       cantidad: 1,
       precio_costo: 0,
-    });
+    };
+
+    if (index !== undefined) {
+      // Si estamos editando una línea existente o agregando en un índice específico (futuro)
+      // Por ahora el search global agrega al final
+    }
+
+    append(newItem);
     setProductSearchOpen(false);
     setProductSearchValue("");
     toast({
       title: "Producto agregado",
-      description: `${product.nombre} añadido a la lista`,
-      className: "bg-blue-600 text-white border-none"
+      description: `${product.nombre}`,
+      className: "bg-blue-50 text-blue-900 border-blue-100"
     });
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setLocation("/purchases")}
-                className="hover:bg-slate-100"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-900">Registrar Compra</h1>
-                <p className="text-sm text-slate-500 mt-0.5">Ingrese los detalles de la factura de compra</p>
-              </div>
-            </div>
+    <div className="min-h-screen bg-slate-50/50 pb-20">
+      {/* Header Simplificado */}
+      <div className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setLocation("/purchases")}
+              className="text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+            <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              Nueva Compra
+            </h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-500">
+              {new Date().toLocaleDateString('es-CL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </span>
           </div>
         </div>
       </div>
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-          {/* Sección: Datos de la compra */}
-          <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6 space-y-6">
-            <h2 className="text-lg font-semibold text-slate-900 pb-2 border-b border-slate-200">
-              Datos de la Compra
-            </h2>
 
-            <div>
-              <div>
-                <FormLabel className="text-sm font-semibold text-slate-700">Seleccione un Proveedor *</FormLabel>
-                <p className="text-xs text-slate-500 mt-1 mb-3">Busque y seleccione el proveedor de esta compra</p>
-                <Popover open={providerOpen} onOpenChange={setProviderOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      className={cn(
-                        "w-full justify-between h-12 font-normal border-2 transition-all",
-                        selectedProviderName 
-                          ? "bg-pink-50 border-pink-200 hover:bg-pink-100 text-slate-900" 
-                          : "bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-400"
-                      )}
-                    >
-                      <span className="truncate">{selectedProviderName || "Haga clic para seleccionar un proveedor"}</span>
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-slate-400" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[500px] p-0 border-slate-200 shadow-xl" align="start">
-                    <div className="bg-gradient-to-r from-pink-50 to-rose-50 px-4 py-3 border-b border-pink-100">
-                      <h4 className="font-semibold text-slate-900 text-sm">Buscar Proveedor</h4>
-                      <p className="text-xs text-slate-600 mt-0.5">Seleccione de la lista o busque por nombre</p>
-                    </div>
-                    <Command className="rounded-lg">
-                      <CommandInput 
-                        placeholder="Escriba para buscar..." 
-                        value={searchProvider}
-                        onValueChange={setSearchProvider}
-                        className="h-11 border-none text-base"
-                      />
-                      <CommandList className="max-h-[300px]">
-                        <CommandEmpty className="py-8 text-center">
-                          <div className="flex flex-col items-center gap-2">
-                            <Search className="w-8 h-8 text-slate-300" />
-                            <p className="text-sm text-slate-500">No se encontró ningún proveedor</p>
-                            <p className="text-xs text-slate-400">Intente con otro nombre o cree uno nuevo</p>
-                          </div>
-                        </CommandEmpty>
-                        <CommandGroup>
-                          {filteredProviders.map((provider) => {
-                            const isSelected = provider.id === selectedProviderId;
-                            return (
-                              <CommandItem
-                                key={provider.id}
-                                value={provider.nombre}
-                                onSelect={() => {
-                                  setSelectedProviderId(provider.id);
-                                  setSelectedProviderName(provider.nombre);
-                                  setProviderOpen(false);
-                                  setSearchProvider("");
-                                }}
-                                className={cn(
-                                  "cursor-pointer py-3 px-3 my-1 mx-2 rounded-md transition-all",
-                                  isSelected 
-                                    ? "bg-pink-50 border-2 border-pink-200" 
-                                    : "hover:bg-slate-100 border-2 border-transparent"
-                                )}
+          {/* Grid Superior: Info Doc y Proveedor */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            {/* Columna Izquierda: Datos del Documento */}
+
+
+            {/* Columna Derecha: Selección de Proveedor */}
+            <div className="lg:col-span-3 bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-slate-400" />
+                Proveedor
+              </h2>
+
+              <div className="flex-1">
+                {!selectedProviderName ? (
+                  <div className="h-full flex flex-col justify-center">
+                    <Popover open={providerOpen} onOpenChange={setProviderOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className="w-full justify-between h-14 text-base font-normal border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-white hover:border-blue-400 hover:text-blue-600 transition-all group"
+                        >
+                          <span className="flex items-center gap-3 text-slate-500 group-hover:text-blue-600">
+                            <Search className="w-5 h-5 opacity-50" />
+                            Buscar o seleccionar proveedor...
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-30" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[400px] p-0 border-slate-200 shadow-xl" align="start">
+                        <div className="bg-slate-50 px-4 py-3 border-b border-slate-100">
+                          <h4 className="font-semibold text-slate-900 text-sm">Seleccionar Proveedor</h4>
+                        </div>
+                        <Command>
+                          <CommandInput
+                            placeholder="Buscar proveedor..."
+                            value={searchProvider}
+                            onValueChange={setSearchProvider}
+                            className="h-11 border-none"
+                          />
+                          <CommandList>
+                            <CommandEmpty className="py-6 text-center text-sm text-slate-500">
+                              No encontrado.
+                              <button
+                                type="button"
+                                onClick={() => setCreateProviderModalOpen(true)}
+                                className="block mx-auto mt-2 text-blue-600 font-medium hover:underline"
                               >
-                                <div className="flex items-center gap-3 flex-1 min-w-0">
-                                  <div className={cn(
-                                    "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0",
-                                    isSelected ? "bg-pink-300 text-white" : "bg-slate-200 text-slate-600"
-                                  )}>
-                                    {provider.nombre.charAt(0).toUpperCase()}
+                                + Crear "{searchProvider}"
+                              </button>
+                            </CommandEmpty>
+                            <CommandGroup>
+                              {filteredProviders.map((provider) => (
+                                <CommandItem
+                                  key={provider.id}
+                                  value={provider.nombre}
+                                  onSelect={() => {
+                                    setSelectedProviderId(provider.id);
+                                    setSelectedProviderName(provider.nombre);
+                                    setProviderOpen(false);
+                                    setSearchProvider("");
+                                  }}
+                                  className="cursor-pointer py-3 data-[selected=true]:bg-blue-50 data-[selected=true]:text-blue-900"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-500">
+                                      {provider.nombre.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="flex-1">
+                                      <p className="font-medium">{provider.nombre}</p>
+                                      {provider.telefono && <p className="text-xs text-slate-400">{provider.telefono}</p>}
+                                    </div>
+                                    {selectedProviderId === provider.id && <Check className="w-4 h-4 text-blue-500" />}
                                   </div>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="font-semibold text-slate-900 truncate">{provider.nombre}</div>
-                                    {(provider.telefono || provider.email) && (
-                                      <div className="text-xs text-slate-500 truncate mt-0.5 flex items-center gap-2">
-                                        {provider.telefono && (
-                                          <span className="font-mono">{provider.telefono}</span>
-                                        )}
-                                        {provider.telefono && provider.email && <span>•</span>}
-                                        {provider.email && (
-                                          <span>{provider.email}</span>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                  {isSelected && (
-                                    <Check className="h-5 w-5 text-pink-500 flex-shrink-0" />
-                                  )}
-                                </div>
-                              </CommandItem>
-                            );
-                          })}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-                <button
-                  type="button"
-                  onClick={() => setCreateProviderModalOpen(true)}
-                  className="text-sm text-pink-600 hover:text-pink-700 hover:underline transition-colors mt-2 block font-medium"
-                >
-                  + Crear nuevo proveedor
-                </button>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+
+                    <div className="mt-4 text-center">
+                      <p className="text-xs text-slate-400">¿No encuentra al proveedor?</p>
+                      <Button
+                        variant="ghost"
+                        onClick={() => setCreateProviderModalOpen(true)}
+                        className="text-blue-600 h-auto p-0 text-sm font-medium hover:underline"
+                      >
+                        Crear nuevo proveedor
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 rounded-lg border border-slate-200 p-4 flex items-center justify-between group hover:border-blue-200 hover:bg-blue-50/30 transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center shadow-sm">
+                        <Building2 className="w-6 h-6 text-blue-500" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-0.5">Proveedor Seleccionado</p>
+                        <h3 className="text-lg font-bold text-slate-900">{selectedProviderName}</h3>
+                        <div className="flex gap-3 mt-1 text-sm text-slate-500">
+                          {/* Aquí podríamos mostrar más info si la tuviéramos en el state seleccionado */}
+                          <span className="flex items-center gap-1"><Check className="w-3 h-3 text-green-500" /> Verificado</span>
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      onClick={() => { setSelectedProviderName(""); setSelectedProviderId(""); }}
+                      className="text-slate-400 hover:text-slate-600 hover:bg-white"
+                    >
+                      Cambiar
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Sección: Detalle de ítems */}
-          <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6 space-y-6">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Detalle de Ítems
-              </h2>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setLocation("/inventory")}
-                className="text-slate-600 hover:text-primary border-slate-300"
-              >
-                <Package className="w-4 h-4 mr-2" />
-                Gestionar Productos
-              </Button>
-            </div>
+          {/* Sección de Ítems (Tabla) */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Detalle de Productos</h2>
+                <p className="text-sm text-slate-500">Agregue los ítems de la factura de compra</p>
+              </div>
 
-            {/* Barra de búsqueda de productos */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 block">Buscar producto</label>
+              {/* Buscador de Productos para agregar */}
               <Popover open={productSearchOpen} onOpenChange={setProductSearchOpen}>
                 <PopoverTrigger asChild>
-                  <div className="relative">
-                    <Search className={cn(
-                      "absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 transition-opacity duration-200",
-                      (productSearchFocused || productSearchValue) && "opacity-0"
-                    )} />
-                    <Input
-                      placeholder=""
-                      value={productSearchValue}
-                      onChange={(e) => {
-                        setProductSearchValue(e.target.value);
-                        setProductSearchOpen(true);
-                      }}
-                      onFocus={() => {
-                        setProductSearchOpen(true);
-                        setProductSearchFocused(true);
-                      }}
-                      onBlur={() => setProductSearchFocused(false)}
-                      className={cn(
-                        "h-12 bg-white border-slate-300 text-base transition-all duration-200 shadow-sm hover:border-slate-400 focus:border-primary",
-                        (productSearchFocused || productSearchValue) ? "pl-4" : "pl-12"
-                      )}
-                    />
-                  </div>
+                  <Button className="w-full md:w-[300px] justify-between bg-slate-800 text-white hover:bg-slate-700">
+                    <span className="flex items-center gap-2">
+                      <Plus className="w-4 h-4" />
+                      Agregar Producto...
+                    </span>
+                  </Button>
                 </PopoverTrigger>
-                <PopoverContent 
-                  className="w-[600px] p-0 border-slate-200 shadow-xl" 
-                  align="start"
-                  side="bottom"
-                  sideOffset={8}
-                  onOpenAutoFocus={(e) => e.preventDefault()}
-                  avoidCollisions={false}
-                >
-                  <div className="max-h-[400px] overflow-y-auto">
-                    {filteredProducts.length === 0 ? (
-                      <div className="py-8 text-center text-sm text-slate-500">
-                        <Package className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                        <p>No se encontraron productos</p>
-                        <Button
-                          type="button"
-                          variant="link"
-                          size="sm"
-                          onClick={() => setLocation("/inventory")}
-                          className="mt-2 text-primary"
-                        >
-                          Ir a Inventario para crear producto
+                <PopoverContent className="w-[400px] p-0" align="end">
+                  <Command>
+                    <CommandInput
+                      placeholder="Buscar por nombre o SKU..."
+                      value={productSearchValue}
+                      onValueChange={setProductSearchValue}
+                    />
+                    <CommandList>
+                      <CommandEmpty className="py-4 text-center text-sm text-slate-500">
+                        No encontrado.
+                        <Button variant="ghost" onClick={() => setLocation("/inventory")} className="text-blue-600 hover:underline p-0 h-auto">
+                          Ir a inventario
                         </Button>
-                      </div>
-                    ) : (
-                      <div className="divide-y divide-slate-100">
-                        {filteredProducts.map((product) => (
-                          <button
+                      </CommandEmpty>
+                      <CommandGroup heading="Resultados">
+                        {filteredProducts.slice(0, 10).map((product) => (
+                          <CommandItem
                             key={product.id}
-                            type="button"
-                            onClick={() => handleAddProductFromSearch(product)}
-                            className="w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+                            onSelect={() => handleAddProductFromSearch(product)}
+                            className="cursor-pointer data-[selected=true]:bg-blue-50 data-[selected=true]:text-blue-900"
                           >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                                    {product.sku}
-                                  </span>
-                                  <span className="font-medium text-slate-900 truncate">
-                                    {product.nombre}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                                  {product.marca && <span>Marca: {product.marca}</span>}
-                                  <span>Stock: {product.stock_actual}</span>
-                                </div>
+                            <div className="flex items-center justify-between w-full">
+                              <div>
+                                <p className="font-medium">{product.nombre}</p>
+                                <p className="text-xs text-slate-500">SKU: {product.sku} • Stock: {product.stock_actual}</p>
                               </div>
-                              <Plus className="w-4 h-4 text-slate-400 shrink-0 mt-1" />
+                              <Plus className="w-4 h-4 text-blue-500" />
                             </div>
-                          </button>
+                          </CommandItem>
                         ))}
-                      </div>
-                    )}
-                  </div>
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
                 </PopoverContent>
               </Popover>
             </div>
 
-            {/* Lista de ítems */}
-            {fields.length === 0 ? (
-              <div className="py-12 text-center text-slate-400">
-                <Package className="w-16 h-16 mx-auto mb-3 text-slate-200" />
-                <p className="text-sm">No hay productos agregados</p>
-                <p className="text-xs mt-1">Utiliza el buscador para agregar productos</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {fields.map((field, index) => {
-                  const cantidad = form.watch(`items.${index}.cantidad`) || 0;
-                  const precioCosto = form.watch(`items.${index}.precio_costo`) || 0;
-                  const subtotal = cantidad * precioCosto;
-
-                  return (
-                    <div key={field.id} className="border border-slate-200 rounded-lg p-5 bg-white shadow-sm hover:shadow-md hover:border-slate-300 transition-all duration-200">
-                      {/* Fila 1: Principal */}
-                      <div className="grid grid-cols-12 gap-4 items-start mb-4">
-                        {/* SKU */}
-                        <div className="col-span-2">
-                          <FormLabel className="text-xs font-medium text-slate-600 uppercase tracking-wide">SKU</FormLabel>
-                          <Input 
-                            placeholder="FRN-001"
-                            className="h-10 font-mono text-sm mt-1.5 uppercase bg-white border-slate-300"
-                            {...form.register(`items.${index}.sku`)}
-                            onChange={(e) => {
-                              form.setValue(`items.${index}.sku`, e.target.value.toUpperCase());
-                            }}
-                          />
-                        </div>
-
-                        {/* Producto */}
-                        <div className="col-span-5">
-                          <FormLabel className="text-xs font-medium text-slate-600 uppercase tracking-wide">Producto *</FormLabel>
-                          <Input 
-                            placeholder="Ej: Pastillas de freno delanteras"
-                            className="h-10 mt-1.5 bg-white border-slate-300"
-                            {...form.register(`items.${index}.nombre`)}
-                          />
-                        </div>
-
-                        {/* Cantidad */}
-                        <div className="col-span-2">
-                          <FormLabel className="text-xs font-medium text-slate-600 uppercase tracking-wide">Cantidad *</FormLabel>
-                          <Input 
-                            type="number"
-                            min="1"
-                            placeholder="1"
-                            className="h-10 mt-1.5 bg-white border-slate-300 text-center font-medium"
-                            {...form.register(`items.${index}.cantidad`, { 
-                              required: "La cantidad es requerida",
-                              valueAsNumber: true,
-                              min: 1
-                            })}
-                          />
-                        </div>
-
-                        {/* Precio Costo */}
-                        <div className="col-span-2">
-                          <FormLabel className="text-xs font-medium text-slate-600 uppercase tracking-wide">Precio Costo *</FormLabel>
-                          <Input 
-                            type="text"
-                            placeholder="0"
-                            className="h-10 mt-1.5 font-mono text-sm bg-white border-slate-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                            {...form.register(`items.${index}.precio_costo`, { 
-                              valueAsNumber: true,
-                              setValueAs: (v) => v === '' ? 0 : parseInt(v)
-                            })}
-                            onChange={(e) => {
-                              const value = e.target.value.replace(/\D/g, '');
-                              form.setValue(`items.${index}.precio_costo`, parseInt(value) || 0);
-                            }}
-                          />
-                        </div>
-
-                        {/* Eliminar */}
-                        <div className="col-span-1 flex justify-end pt-6">
-                          <Button 
-                            type="button" 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-10 w-10 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                            onClick={() => remove(index)}
-                          >
-                            <Trash2 className="w-4 h-4" />
+            {/* Tabla */}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader className="bg-slate-50">
+                  <TableRow>
+                    <TableHead className="w-[120px] font-bold text-slate-700">SKU</TableHead>
+                    <TableHead className="min-w-[250px] font-bold text-slate-700">Producto</TableHead>
+                    <TableHead className="w-[120px] font-bold text-slate-700">Marca</TableHead>
+                    <TableHead className="w-[120px] font-bold text-slate-700 text-center">Cant.</TableHead>
+                    <TableHead className="w-[180px] font-bold text-slate-700 text-right">Costo Unit.</TableHead>
+                    <TableHead className="w-[180px] font-bold text-slate-700 text-right">Subtotal</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {fields.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="h-48 text-center text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center">
+                            <Package className="w-8 h-8 text-slate-300" />
+                          </div>
+                          <p>No hay productos en la lista.</p>
+                          <Button variant="outline" size="sm" onClick={() => setProductSearchOpen(true)}>
+                            Buscar producto
                           </Button>
                         </div>
-                      </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    fields.map((field, index) => {
+                      const cantidad = form.watch(`items.${index}.cantidad`) || 0;
+                      const costo = form.watch(`items.${index}.precio_costo`) || 0;
+                      const subtotal = cantidad * costo;
 
-                      {/* Fila 2: Detalles */}
-                      <div className="grid grid-cols-12 gap-4 items-start">
-                        {/* Marca */}
-                        <div className="col-span-4">
-                          <FormLabel className="text-xs font-medium text-slate-500 uppercase tracking-wide">Marca</FormLabel>
-                          <Input 
-                            placeholder="Ej: Bosch"
-                            className="h-9 mt-1.5 bg-white border-slate-200 text-sm"
-                            {...form.register(`items.${index}.marca`)}
-                          />
-                        </div>
-
-                        {/* Calidad */}
-                        <div className="col-span-4">
-                          <FormLabel className="text-xs font-medium text-slate-500 uppercase tracking-wide">Calidad</FormLabel>
-                          <Input 
-                            placeholder="Ej: Cerámica"
-                            className="h-9 mt-1.5 bg-white border-slate-200 text-sm"
-                            {...form.register(`items.${index}.calidad`)}
-                          />
-                        </div>
-
-                        {/* Subtotal */}
-                        <div className="col-span-4 flex items-end justify-end h-full pb-1">
-                          {subtotal > 0 && (
-                            <div className="text-right">
-                              <span className="text-xs text-slate-500 block mb-1">Subtotal</span>
-                              <span className="text-lg font-mono font-bold text-slate-900">
-                                ${subtotal.toLocaleString('es-CL')}
-                              </span>
+                      return (
+                        <TableRow key={field.id} className="hover:bg-slate-50/50">
+                          <TableCell>
+                            <Input
+                              {...form.register(`items.${index}.sku`)}
+                              className="h-8 text-xs font-mono bg-white uppercase"
+                              placeholder="SKU"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              {...form.register(`items.${index}.nombre`)}
+                              className="h-8 text-sm bg-white"
+                              placeholder="Nombre del producto"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              {...form.register(`items.${index}.marca`)}
+                              className="h-8 text-xs bg-white"
+                              placeholder="Marca"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min="1"
+                              {...form.register(`items.${index}.cantidad`, { valueAsNumber: true })}
+                              className="h-8 text-sm text-center bg-white"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <div className="relative">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">$</span>
+                              <Input
+                                type="text"
+                                {...form.register(`items.${index}.precio_costo`, {
+                                  valueAsNumber: true,
+                                  setValueAs: (v) => v === '' ? 0 : parseInt(v)
+                                })}
+                                onChange={(e) => {
+                                  const val = e.target.value.replace(/\D/g, '');
+                                  form.setValue(`items.${index}.precio_costo`, parseInt(val) || 0);
+                                }}
+                                className="h-8 text-sm text-right pl-6 font-mono bg-white"
+                              />
                             </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                
-                {/* Botón para agregar más ítems */}
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => append({
-                    sku: "",
-                    nombre: "",
-                    marca: "",
-                    calidad: "",
-                    cantidad: 1,
-                    precio_costo: 0,
-                  })}
-                  className="w-full h-12 border-2 border-dashed border-slate-300 hover:border-primary hover:bg-primary/5 text-slate-600 hover:text-primary transition-colors"
-                >
-                  <Plus className="w-5 h-5 mr-2" />
-                  Agregar otro producto
-                </Button>
+                          </TableCell>
+                          <TableCell className="text-right font-mono font-medium text-slate-700">
+                            ${subtotal.toLocaleString('es-CL')}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => remove(index)}
+                              className="h-8 w-8 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+
+
+            </div>
+          </div>
+
+          {/* Sección Inferior: Resumen y Acciones */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div>
+              {/* Espacio para observaciones o notas futuras */}
+            </div>
+
+            {fields.length > 0 && (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 ml-auto w-full md:w-[400px]">
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
+                  Resumen Financiero
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between text-slate-500">
+                    <span>Subtotal Neto</span>
+                    <span className="font-mono">${calculatedNeto.toLocaleString('es-CL')}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-500">
+                    <span>IVA (19%)</span>
+                    <span className="font-mono">${calculatedIVA.toLocaleString('es-CL')}</span>
+                  </div>
+                  <div className="border-t border-slate-200 pt-3 mt-3 flex justify-between items-baseline">
+                    <span className="text-lg font-bold text-slate-900">Total a Pagar</span>
+                    <span className="text-2xl font-bold text-primary">${calculatedTotal.toLocaleString('es-CL')}</span>
+                  </div>
+                </div>
+
+                <div className="mt-8 grid grid-cols-2 gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setLocation("/purchases")}
+                    className="h-12 border-slate-300 text-slate-600"
+                    disabled={isPending}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="h-12 bg-primary hover:bg-primary/90 shadow-lg shadow-blue-500/20"
+                    disabled={isPending}
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Guardando...
+                      </>
+                    ) : (
+                      "Guardar Compra"
+                    )}
+                  </Button>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Footer: Total y Acciones */}
-          <div className="bg-white rounded-lg border border-slate-200 shadow-md p-6 sticky bottom-4 z-40">
-            <div className="flex items-center justify-between">
-              <div className="space-y-2">
-                <div className="flex items-center gap-6">
-                  <div>
-                    <p className="text-xs text-slate-500 mb-0.5">Neto</p>
-                    <p className="text-lg font-semibold text-slate-700">
-                      ${calculatedNeto.toLocaleString('es-CL')}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 mb-0.5">IVA (19%)</p>
-                    <p className="text-lg font-semibold text-slate-700">
-                      ${calculatedIVA.toLocaleString('es-CL')}
-                    </p>
-                  </div>
-                  <div className="border-l border-slate-300 pl-6">
-                    <p className="text-xs text-slate-500 mb-0.5">Total</p>
-                    <p className="text-3xl font-bold text-primary">
-                      ${calculatedTotal.toLocaleString('es-CL')}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex gap-3">
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  size="lg"
-                  onClick={() => setLocation("/purchases")}
-                  className="px-8 border-slate-300"
-                >
-                  Cancelar
-                </Button>
-                <Button 
-                  type="submit" 
-                  size="lg"
-                  className="px-8 shadow-md" 
-                  disabled={isPending}
-                >
-                  {isPending ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Guardando...
-                    </>
-                  ) : (
-                    "Guardar Compra"
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
         </form>
       </Form>
 
       {/* Modal para crear proveedor */}
-      <CreateProviderModal 
+      <CreateProviderModal
         open={createProviderModalOpen}
         onOpenChange={setCreateProviderModalOpen}
         onProviderCreated={(providerName) => {
+          setSelectedProviderName(providerName);
           form.setValue("proveedor_nombre", providerName);
           setCreateProviderModalOpen(false);
+          setProviderOpen(false);
+          setSearchProvider("");
         }}
       />
     </div>
@@ -613,18 +544,18 @@ export default function CreatePurchase() {
 }
 
 // Modal minimalista para crear proveedor
-function CreateProviderModal({ 
-  open, 
+function CreateProviderModal({
+  open,
   onOpenChange,
-  onProviderCreated 
-}: { 
-  open: boolean; 
+  onProviderCreated
+}: {
+  open: boolean;
   onOpenChange: (open: boolean) => void;
   onProviderCreated: (providerName: string) => void;
 }) {
   const createProviderMutation = useCreateProvider();
   const { toast } = useToast();
-  
+
   const form = useForm({
     defaultValues: {
       nombre: "",
@@ -645,7 +576,7 @@ function CreateProviderModal({
         toast({
           title: "Proveedor creado",
           description: `${newProvider.nombre} ha sido agregado`,
-          className: "bg-green-600 text-white border-none"
+          className: "bg-emerald-50 text-emerald-900 border-emerald-200"
         });
         form.reset();
         onProviderCreated(newProvider.nombre);
@@ -654,7 +585,7 @@ function CreateProviderModal({
         toast({
           title: "Error",
           description: error.message || "No se pudo crear el proveedor",
-          variant: "destructive"
+          className: "bg-rose-50 text-rose-900 border-rose-200"
         });
       }
     });
@@ -665,7 +596,7 @@ function CreateProviderModal({
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">Crear Nuevo Proveedor</DialogTitle>
-          <p className="text-sm text-slate-500 mt-1">Complete los datos del proveedor</p>
+          <div className="text-sm text-slate-500 mt-1">Complete los datos del proveedor</div>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5 mt-4">
@@ -691,20 +622,18 @@ function CreateProviderModal({
                 <FormItem>
                   <FormLabel className="text-sm font-semibold text-slate-700">Teléfono</FormLabel>
                   <FormControl>
-                    <Input 
-                      {...field} 
+                    <Input
+                      {...field}
                       placeholder="Ej: +56912345678"
-                      defaultValue="+569"
                       className="h-11 bg-slate-50 border-slate-200 focus:bg-white font-mono"
                       onFocus={(e) => {
                         if (e.target.value === '' || e.target.value === '+569') {
-                          e.target.value = '+569';
                           field.onChange('+569');
                         }
                       }}
                     />
                   </FormControl>
-                  <p className="text-xs text-slate-500 mt-1">Opcional</p>
+                  <div className="text-xs text-slate-500 mt-1">Opcional</div>
                   <FormMessage />
                 </FormItem>
               )}
@@ -725,23 +654,23 @@ function CreateProviderModal({
                   <FormControl>
                     <Input {...field} type="email" placeholder="Ej: contacto@proveedor.cl" className="h-11 bg-slate-50 border-slate-200 focus:bg-white" />
                   </FormControl>
-                  <p className="text-xs text-slate-500 mt-1">Opcional</p>
+                  <div className="text-xs text-slate-500 mt-1">Opcional</div>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
             <div className="flex gap-3 pt-6">
-              <Button 
-                type="button" 
-                variant="outline" 
+              <Button
+                type="button"
+                variant="outline"
                 onClick={() => onOpenChange(false)}
                 className="flex-1 h-11"
               >
                 Cancelar
               </Button>
-              <Button 
-                type="submit" 
+              <Button
+                type="submit"
                 disabled={createProviderMutation.isPending}
                 className="flex-1 h-11 bg-primary hover:bg-primary/90"
               >

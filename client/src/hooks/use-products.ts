@@ -20,6 +20,12 @@ export interface Product {
     modelo: string;
     anio: number;
   }>;
+  compatibilidades?: Array<{
+    id: string;
+    marca: string;
+    modelo: string;
+    anio: number;
+  }>;
 }
 
 export interface CreateProductDTO {
@@ -38,16 +44,16 @@ export function useProducts(search?: string) {
   return useQuery<Product[]>({
     queryKey: ["products", search],
     queryFn: async () => {
-      const url = search 
+      const url = search
         ? getApiUrl(`/products?search=${encodeURIComponent(search)}`)
         : getApiUrl("/products");
-      
-      const res = await fetch(url, { 
-        headers: getAuthHeaders() 
+
+      const res = await fetch(url, {
+        headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error("Error al cargar productos");
       const data = await res.json();
-      
+
       return data;
     },
   });
