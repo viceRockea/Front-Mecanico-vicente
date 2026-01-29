@@ -5,9 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Search, User, Car, Phone, FileText, Mail, MapPin, Calendar, DollarSign, Wrench, ChevronRight, X, Check, Loader2, Edit, Trash2, Save } from "lucide-react";
+import { Search, User, Car, Phone, FileText, Mail, MapPin, Calendar, DollarSign, Wrench, ChevronRight, ChevronDown, X, Check, Loader2, Edit, Trash2, Save } from "lucide-react";
 import { useGlobalSearch } from "@/hooks/use-reports";
 import { useClients, useUpdateClient, useDeleteClient } from "@/hooks/use-clients";
+import { useWorkOrders } from "@/hooks/use-work-orders";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
@@ -43,12 +44,18 @@ export default function Clients() {
   const [editedClient, setEditedClient] = useState<ClienteDetalle | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [clientToDelete, setClientToDelete] = useState<ClienteDetalle | null>(null);
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [selectedOrderDetail, setSelectedOrderDetail] = useState<any>(null);
+  const [showOrderDetailSheet, setShowOrderDetailSheet] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   
   const { toast } = useToast();
   
   // Obtener todos los clientes
   const { data: allClients = [], isLoading: isLoadingClients } = useClients();
+  
+  // Obtener todas las órdenes de trabajo
+  const { data: allWorkOrders = [] } = useWorkOrders();
   
   // Mutations
   const updateClient = useUpdateClient();
@@ -86,6 +93,18 @@ export default function Clients() {
     setEditedClient(cliente);
     setIsEditing(false);
     setShowDetailDrawer(true);
+  };
+
+  const toggleOrderExpansion = (orderId: string) => {
+    setExpandedOrders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId);
+      } else {
+        newSet.add(orderId);
+      }
+      return newSet;
+    });
   };
 
   // Seleccionar cliente desde el dropdown de autocompletado
@@ -210,14 +229,13 @@ export default function Clients() {
 
   // Filtrar órdenes del cliente seleccionado
   const ordenesDelCliente = editedClient 
-    ? searchResults?.ordenes_recientes?.filter(
-        orden => orden.cliente_nombre?.toLowerCase().includes(editedClient.nombre.toLowerCase())
-      ) || []
+    ? allWorkOrders.filter(
+        orden => orden.cliente?.id === editedClient.id || orden.cliente?.rut === editedClient.rut
+      )
     : [];
 
   const totalGastado = ordenesDelCliente.reduce((sum, orden) => {
-    const total = orden.total_cobrado || orden.total || 0;
-    return sum + total;
+    return sum + (orden.total_cobrado || 0);
   }, 0);
 
   return (
@@ -607,55 +625,60 @@ export default function Clients() {
                 </CardHeader>
                 <CardContent>
                   {ordenesDelCliente.length > 0 ? (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       {ordenesDelCliente.map((orden) => {
-                        const numeroOrden = orden.numero_orden_papel || orden.numero_orden || 0;
-                        const total = orden.total_cobrado || orden.total || 0;
-                        const descripcion = (orden as any).descripcion_trabajo || (orden as any).detalle_trabajo || "";
+                        const numeroOrden = orden.numero_orden_papel || 0;
+                        const total = orden.total_cobrado || 0;
                         return (
-                          <div key={orden.id} className="p-4 border border-slate-200 rounded-lg hover:border-primary/30 hover:shadow-sm transition-all space-y-3">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <p className="font-semibold text-lg text-primary">OT #{numeroOrden}</p>
-                                <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground flex-wrap">
-                                  <span className="flex items-center gap-1">
-                                    <Car className="w-4 h-4" />
-                                    {orden.patente}
-                                  </span>
-                                  <span className="flex items-center gap-1">
-                                    <Calendar className="w-4 h-4" />
-                                    {new Date(orden.fecha).toLocaleDateString('es-CL')}
-                                  </span>
+                          <div key={orden.id} className="p-3 border border-slate-200 rounded-lg hover:border-primary/30 hover:shadow-sm transition-all">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-3 flex-1">
+                                <p className="font-semibold text-base text-primary">OT #{numeroOrden}</p>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <Car className="w-3 h-3" />
+                                  <span className="font-mono">{orden.patente_vehiculo || 'N/A'}</span>
+                                  {orden.vehiculo && (
+                                    <span>• {orden.vehiculo.marca} {orden.vehiculo.modelo}</span>
+                                  )}
+                                  <Calendar className="w-3 h-3 ml-2" />
+                                  <span>{new Date(orden.fecha_ingreso).toLocaleDateString('es-CL')}</span>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <p className="font-bold text-2xl text-primary">${total.toLocaleString('es-CL')}</p>
-                              </div>
+                              <p className="font-bold text-xl text-primary">${total.toLocaleString('es-CL')}</p>
                             </div>
                             
-                            {orden.estado && (
-                              <Badge 
-                                variant={
-                                  orden.estado === "FINALIZADA" ? "default" :
-                                  orden.estado === "EN_PROCESO" ? "secondary" :
-                                  "outline"
-                                }
-                                className="text-xs"
-                              >
-                                {orden.estado}
-                              </Badge>
-                            )}
-                            
-                            {descripcion && (
-                              <div className="mt-3 pt-3 border-t border-slate-100">
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                                  Descripción del Trabajo
-                                </p>
-                                <p className="text-sm text-foreground leading-relaxed">
-                                  {descripcion}
-                                </p>
-                              </div>
-                            )}
+                            <div className="flex items-center justify-between">
+                              {orden.estado && (
+                                <Badge 
+                                  variant={
+                                    orden.estado === "FINALIZADA" ? "default" :
+                                    orden.estado === "EN_PROCESO" ? "secondary" :
+                                    "outline"
+                                  }
+                                  className="text-xs"
+                                >
+                                  {orden.estado}
+                                </Badge>
+                              )}
+                              
+                              {/* Botón para expandir/colapsar servicios */}
+                              {orden.detalles && orden.detalles.length > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedOrderDetail(orden);
+                                    setShowOrderDetailSheet(true);
+                                  }}
+                                  className="h-8 gap-1.5 text-xs text-primary hover:bg-primary/5"
+                                >
+                                  <Wrench className="w-3.5 h-3.5" />
+                                  Ver Desglose ({orden.detalles.length})
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
@@ -707,6 +730,179 @@ export default function Clients() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Sheet de Detalle de Orden */}
+      <Sheet open={showOrderDetailSheet} onOpenChange={setShowOrderDetailSheet}>
+        <SheetContent side="right" className="w-full sm:max-w-3xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="text-2xl">Detalle de Orden #{selectedOrderDetail?.numero_orden_papel}</SheetTitle>
+          </SheetHeader>
+
+          {selectedOrderDetail && (
+            <div className="space-y-6 mt-6">
+              {/* Información del Cliente */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <User className="w-5 h-5 text-primary" />
+                    Información del Cliente
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Nombre</Label>
+                      <p className="font-semibold text-lg">{editedClient?.nombre || "—"}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">RUT</Label>
+                      <p className="font-semibold font-mono">{editedClient?.rut || "—"}</p>
+                    </div>
+                    {editedClient?.telefono && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Teléfono</Label>
+                        <p className="font-semibold">{editedClient.telefono}</p>
+                      </div>
+                    )}
+                    {editedClient?.email && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Email</Label>
+                        <p className="font-semibold">{editedClient.email}</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Información del Vehículo */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Car className="w-5 h-5 text-primary" />
+                    Información del Vehículo
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Patente</Label>
+                      <p className="font-semibold font-mono text-lg">{selectedOrderDetail.patente_vehiculo || "—"}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Marca</Label>
+                      <p className="font-semibold">{selectedOrderDetail.vehiculo?.marca || "—"}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Modelo</Label>
+                      <p className="font-semibold">{selectedOrderDetail.vehiculo?.modelo || "—"}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Kilometraje</Label>
+                      <p className="font-semibold">{selectedOrderDetail.vehiculo?.kilometraje ? selectedOrderDetail.vehiculo.kilometraje.toLocaleString('es-CL') + ' km' : "—"}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Información de la Orden */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-primary" />
+                    Detalles de la Orden
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Fecha de Ingreso</Label>
+                      <p className="font-semibold">{new Date(selectedOrderDetail.fecha_ingreso).toLocaleDateString('es-CL')}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Estado</Label>
+                      <div className="mt-1">
+                        <Badge 
+                          variant={
+                            selectedOrderDetail.estado === "FINALIZADA" ? "default" :
+                            selectedOrderDetail.estado === "EN_PROCESO" ? "secondary" :
+                            "outline"
+                          }
+                        >
+                          {selectedOrderDetail.estado}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Realizado Por</Label>
+                      <p className="font-semibold">{selectedOrderDetail.realizado_por || "—"}</p>
+                    </div>
+                    {selectedOrderDetail.revisado_por && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Revisado Por</Label>
+                        <p className="font-semibold">{selectedOrderDetail.revisado_por}</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Servicios Realizados */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Wrench className="w-5 h-5 text-primary" />
+                    Servicios Realizados
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {selectedOrderDetail.detalles && selectedOrderDetail.detalles.length > 0 ? (
+                    <div className="space-y-3">
+                      {selectedOrderDetail.detalles.map((detalle: any, idx: number) => (
+                        <div key={idx} className="bg-slate-50 p-4 rounded-md border border-slate-200">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex items-start gap-3 flex-1">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                <span className="text-sm font-bold text-primary">{idx + 1}</span>
+                              </div>
+                              <div className="flex-1">
+                                <p className="font-semibold text-base text-slate-900">{detalle.servicio_nombre}</p>
+                                {detalle.descripcion && (
+                                  <div className="mt-2 p-3 bg-white rounded border border-slate-200">
+                                    <p className="text-xs text-muted-foreground font-medium mb-1">Descripción del trabajo:</p>
+                                    <p className="text-sm text-slate-700 leading-relaxed">
+                                      {detalle.descripcion}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right ml-4 flex-shrink-0">
+                              <p className="font-mono font-bold text-lg text-primary">${detalle.precio.toLocaleString('es-CL')}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {/* Total */}
+                      <div className="pt-4 mt-4 border-t-2 border-slate-200">
+                        <div className="flex justify-between items-center bg-primary/5 p-4 rounded-lg">
+                          <span className="text-lg font-bold text-slate-700">Total a Cobrar:</span>
+                          <span className="text-2xl font-bold text-primary">${selectedOrderDetail.total_cobrado.toLocaleString('es-CL')}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Wrench className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                      <p>No hay servicios registrados en esta orden</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

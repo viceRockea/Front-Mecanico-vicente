@@ -204,9 +204,9 @@ export default function CreatePurchase() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 pb-20">
+    <>
       {/* Header Simplificado */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+      <div className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Button
@@ -230,8 +230,9 @@ export default function CreatePurchase() {
         </div>
       </div>
 
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+      <div className="min-h-screen bg-slate-50/50 pb-20">
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="max-w-7xl mx-auto px-6 py-8 space-y-8">
 
           {/* Grid Superior: Info Doc y Proveedor */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -380,7 +381,7 @@ export default function CreatePurchase() {
                 {/* Botón 2: Buscador (Popover) */}
                 <Popover open={productSearchOpen} onOpenChange={setProductSearchOpen}>
                   <PopoverTrigger asChild>
-                    <Button className="w-full md:w-[300px] justify-between bg-slate-800 text-white hover:bg-slate-700">
+                    <Button size="sm" className="w-full md:w-auto justify-between bg-slate-800 text-white hover:bg-slate-700">
                       <span className="flex items-center gap-2">
                         <Search className="w-4 h-4" />
                         Buscar y Agregar...
@@ -440,8 +441,8 @@ export default function CreatePurchase() {
                   <TableRow>
                     <TableHead className="w-[120px] font-bold text-slate-700">SKU</TableHead>
                     <TableHead className="min-w-[250px] font-bold text-slate-700">Producto</TableHead>
-                    <TableHead className="w-[120px] font-bold text-slate-700">Marca</TableHead>
-                    <TableHead className="w-[120px] font-bold text-slate-700 text-center">Cant.</TableHead>
+                    <TableHead className="w-[150px] font-bold text-slate-700">Marca</TableHead>
+                    <TableHead className="w-[140px] font-bold text-slate-700 text-center">Cant.</TableHead>
                     <TableHead className="w-[180px] font-bold text-slate-700 text-right">Costo Unit.</TableHead>
                     <TableHead className="w-[180px] font-bold text-slate-700 text-right">Subtotal</TableHead>
                     <TableHead className="w-[50px]"></TableHead>
@@ -499,10 +500,14 @@ export default function CreatePurchase() {
                           </TableCell>
                           <TableCell>
                             <Input
-                              type="number"
-                              min="1"
-                              {...form.register(`items.${index}.cantidad`, { valueAsNumber: true })}
+                              type="text"
+                              value={form.watch(`items.${index}.cantidad`) ? form.watch(`items.${index}.cantidad`).toLocaleString('es-CL') : ""}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/\D/g, '');
+                                form.setValue(`items.${index}.cantidad`, parseInt(val) || 0);
+                              }}
                               className="h-8 text-sm text-center bg-white"
+                              placeholder="0"
                             />
                           </TableCell>
                           <TableCell>
@@ -622,7 +627,8 @@ export default function CreatePurchase() {
         onOpenChange={setIsAddProductOpen}
         onProductCreated={handleProductCreated}
       />
-    </div>
+      </div>
+    </>
   );
 }
 

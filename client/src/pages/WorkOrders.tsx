@@ -5,8 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Car, User, Calendar, DollarSign } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Plus, Search, FileText, Trash2, Loader2 } from "lucide-react";
+import { Plus, Search, FileText, Trash2, Loader2, Wrench, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -17,7 +22,22 @@ export default function WorkOrders() {
   const [search, setSearch] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [showDetailSheet, setShowDetailSheet] = useState(false);
   const { data: allWorkOrders = [], isLoading } = useWorkOrders();
+
+  const toggleOrderExpansion = (orderId: string) => {
+    setExpandedOrders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId);
+      } else {
+        newSet.add(orderId);
+      }
+      return newSet;
+    });
+  };
   
   // Filtrado de órdenes
   let workOrders = allWorkOrders.filter(wo => {
@@ -103,48 +123,193 @@ export default function WorkOrders() {
                   <TableHead className="font-semibold">Fecha</TableHead>
                   <TableHead className="font-semibold">Estado</TableHead>
                   <TableHead className="font-semibold text-right">Total</TableHead>
-                  <TableHead className="font-semibold text-center">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {workOrders.map((workOrder) => (
-                  <WorkOrderRow key={workOrder.id} workOrder={workOrder} />
+                {workOrders.map((wo) => (
+                  <WorkOrderRow 
+                    key={wo.id} 
+                    workOrder={wo}
+                    onClick={() => {
+                      setSelectedOrder(wo);
+                      setShowDetailSheet(true);
+                    }}
+                  />
                 ))}
               </TableBody>
             </Table>
           </div>
         )}
       </div>
+
+      {/* Sheet de Detalle de Orden */}
+      <Sheet open={showDetailSheet} onOpenChange={setShowDetailSheet}>
+        <SheetContent side="right" className="w-full sm:max-w-3xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="text-2xl">Detalle de Orden #{selectedOrder?.numero_orden_papel}</SheetTitle>
+          </SheetHeader>
+
+          {selectedOrder && (
+            <div className="space-y-6 mt-6">
+              {/* Información del Cliente */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <User className="w-5 h-5 text-primary" />
+                    Información del Cliente
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Nombre</Label>
+                      <p className="font-semibold text-lg">{selectedOrder.cliente?.nombre || "—"}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">RUT</Label>
+                      <p className="font-semibold font-mono">{selectedOrder.cliente?.rut || "—"}</p>
+                    </div>
+                    {selectedOrder.cliente?.telefono && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Teléfono</Label>
+                        <p className="font-semibold">{selectedOrder.cliente.telefono}</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Información del Vehículo */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Car className="w-5 h-5 text-primary" />
+                    Información del Vehículo
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Patente</Label>
+                      <p className="font-semibold font-mono text-lg">{selectedOrder.patente_vehiculo || "—"}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Marca</Label>
+                      <p className="font-semibold">{selectedOrder.vehiculo?.marca || "—"}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Modelo</Label>
+                      <p className="font-semibold">{selectedOrder.vehiculo?.modelo || "—"}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Kilometraje</Label>
+                      <p className="font-semibold">{selectedOrder.vehiculo?.kilometraje ? selectedOrder.vehiculo.kilometraje.toLocaleString('es-CL') + ' km' : "—"}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Información de la Orden */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-primary" />
+                    Detalles de la Orden
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Fecha de Ingreso</Label>
+                      <p className="font-semibold">{new Date(selectedOrder.fecha_ingreso).toLocaleDateString('es-CL')}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Estado</Label>
+                      <div className="mt-1">
+                        <StatusBadge status={selectedOrder.estado} />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Realizado Por</Label>
+                      <p className="font-semibold">{selectedOrder.realizado_por || "—"}</p>
+                    </div>
+                    {selectedOrder.revisado_por && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Revisado Por</Label>
+                        <p className="font-semibold">{selectedOrder.revisado_por}</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Servicios Realizados */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Wrench className="w-5 h-5 text-primary" />
+                    Servicios Realizados
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {selectedOrder.detalles && selectedOrder.detalles.length > 0 ? (
+                    <div className="space-y-3">
+                      {selectedOrder.detalles.map((detalle: any, idx: number) => (
+                        <div key={idx} className="bg-slate-50 p-4 rounded-md border border-slate-200">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex items-start gap-3 flex-1">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                <span className="text-sm font-bold text-primary">{idx + 1}</span>
+                              </div>
+                              <div className="flex-1">
+                                <p className="font-semibold text-base text-slate-900">{detalle.servicio_nombre}</p>
+                                {detalle.descripcion && (
+                                  <div className="mt-2 p-3 bg-white rounded border border-slate-200">
+                                    <p className="text-xs text-muted-foreground font-medium mb-1">Descripción del trabajo:</p>
+                                    <p className="text-sm text-slate-700 leading-relaxed">
+                                      {detalle.descripcion}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right ml-4 flex-shrink-0">
+                              <p className="font-mono font-bold text-lg text-primary">${detalle.precio.toLocaleString('es-CL')}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {/* Total */}
+                      <div className="pt-4 mt-4 border-t-2 border-slate-200">
+                        <div className="flex justify-between items-center bg-primary/5 p-4 rounded-lg">
+                          <span className="text-lg font-bold text-slate-700">Total a Cobrar:</span>
+                          <span className="text-2xl font-bold text-primary">${selectedOrder.total_cobrado.toLocaleString('es-CL')}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Wrench className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                      <p>No hay servicios registrados en esta orden</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
 
-function WorkOrderRow({ workOrder }: { workOrder: any }) {
-  const { toast } = useToast();
-  const deleteMutation = useDeleteWorkOrder();
-
-  const handleDelete = () => {
-    if (confirm(`¿Eliminar Orden de Trabajo #${workOrder.numero_orden_papel} (${workOrder.patente_vehiculo})?`)) {
-      deleteMutation.mutate(workOrder.id, {
-        onSuccess: () => {
-          toast({
-            title: "Orden Eliminada",
-            description: "La orden de trabajo ha sido eliminada.",
-          });
-        },
-        onError: () => {
-          toast({
-            title: "Error",
-            description: "No se pudo eliminar la orden de trabajo.",
-            variant: "destructive",
-          });
-        },
-      });
-    }
-  };
-
+function WorkOrderRow({ workOrder, onClick }: { workOrder: any; onClick: () => void }) {
   return (
-    <TableRow className="hover:bg-slate-50/50 transition-colors">
+    <TableRow 
+      className="hover:bg-slate-50/50 transition-colors cursor-pointer" 
+      onClick={onClick}
+    >
       <TableCell className="font-semibold text-primary">
         #{workOrder.numero_orden_papel || "N/A"}
       </TableCell>
@@ -183,23 +348,6 @@ function WorkOrderRow({ workOrder }: { workOrder: any }) {
       </TableCell>
       <TableCell className="text-right font-mono font-semibold">
         ${(workOrder.total_cobrado || 0).toLocaleString('es-CL')}
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center justify-center gap-2">
-          <Button 
-            variant="ghost" 
-            size="icon"
-            className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-            onClick={handleDelete}
-            disabled={deleteMutation.isPending}
-          >
-            {deleteMutation.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Trash2 className="w-4 h-4" />
-            )}
-          </Button>
-        </div>
       </TableCell>
     </TableRow>
   );
@@ -273,16 +421,20 @@ function CreateWorkOrderDialog() {
       numero_orden_papel: data.numero_orden_papel,
       realizado_por: data.realizado_por || undefined,
       revisado_por: data.revisado_por || undefined,
-      // Cliente - formato plano
-      cliente_nombre: data.cliente_nombre.trim(),
-      cliente_rut: data.cliente_rut.trim(),
-      cliente_email: data.cliente_email?.trim() || undefined,
-      cliente_telefono: data.cliente_telefono?.trim() || undefined,
-      // Vehículo - formato plano
-      vehiculo_patente: data.vehiculo_patente.trim(),
-      vehiculo_marca: data.vehiculo_marca.trim(),
-      vehiculo_modelo: data.vehiculo_modelo.trim(),
-      vehiculo_km: data.vehiculo_km || 0,
+      // Cliente - como objeto
+      cliente: {
+        nombre: data.cliente_nombre.trim(),
+        rut: data.cliente_rut.trim(),
+        email: data.cliente_email?.trim() || undefined,
+        telefono: data.cliente_telefono?.trim() || undefined,
+      },
+      // Vehículo - como objeto
+      vehiculo: {
+        patente: data.vehiculo_patente.trim(),
+        marca: data.vehiculo_marca.trim(),
+        modelo: data.vehiculo_modelo.trim(),
+        kilometraje: data.vehiculo_km || 0,
+      },
       // Items
       items,
     };
@@ -299,7 +451,7 @@ function CreateWorkOrderDialog() {
       onSuccess: () => {
         toast({
           title: "Orden Creada",
-          description: "La orden de trabajo ha sido creada exitosamente.",
+          description: "La orden de trabajo ha sido creada exitosamente. El cliente se ha registrado automáticamente.",
         });
         setOpen(false);
         form.reset();
@@ -354,9 +506,10 @@ function CreateWorkOrderDialog() {
                         type="text"
                         inputMode="numeric"
                         placeholder="1001" 
+                        maxLength={8}
                         value={field.value || ''}
                         onChange={(e) => {
-                          const value = e.target.value.replace(/\D/g, '');
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 8);
                           field.onChange(parseInt(value) || 0);
                         }}
                       />
@@ -419,7 +572,22 @@ function CreateWorkOrderDialog() {
                     <FormItem>
                       <FormLabel>RUT</FormLabel>
                       <FormControl>
-                        <Input placeholder="12.345.678-9" {...field} />
+                        <Input 
+                          placeholder="12.345.678-9" 
+                          {...field}
+                          onChange={(e) => {
+                            let value = e.target.value.replace(/[^0-9kK]/g, '');
+                            if (value.length > 9) value = value.slice(0, 9);
+                            
+                            if (value.length > 1) {
+                              const dv = value.slice(-1);
+                              const numbers = value.slice(0, -1);
+                              value = numbers.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1.') + '-' + dv;
+                            }
+                            
+                            field.onChange(value);
+                          }}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -434,7 +602,26 @@ function CreateWorkOrderDialog() {
                     <FormItem>
                       <FormLabel>Teléfono</FormLabel>
                       <FormControl>
-                        <Input placeholder="+56 9 1234 5678" {...field} />
+                        <Input 
+                          placeholder="+56 9 1234 5678" 
+                          value={field.value ? (field.value.startsWith('+56 9 ') ? field.value : '+56 9 ' + field.value) : '+56 9 '}
+                          onChange={(e) => {
+                            let value = e.target.value;
+                            
+                            // Asegurar que siempre empiece con +56 9
+                            if (!value.startsWith('+56 9 ')) {
+                              value = '+56 9 ';
+                            }
+                            
+                            field.onChange(value);
+                          }}
+                          onFocus={(e) => {
+                            // Si está vacío al hacer foco, poner el prefijo
+                            if (!e.target.value || e.target.value === '') {
+                              field.onChange('+56 9 ');
+                            }
+                          }}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

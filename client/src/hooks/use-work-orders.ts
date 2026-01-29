@@ -11,6 +11,12 @@ export interface WorkOrder {
   revisado_por: string | null;
   patente_vehiculo: string;
   kilometraje: number | null;
+  vehiculo?: {
+    patente: string;
+    marca: string;
+    modelo: string;
+    kilometraje?: number;
+  };
   cliente: {
     id: string;
     nombre: string;
@@ -36,15 +42,18 @@ export interface WorkOrderDetail {
 
 export interface CreateWorkOrderDTO {
   numero_orden_papel: number;
-  cliente_rut: string;
-  cliente_nombre: string;
-  cliente_telefono?: string;
-  cliente_email?: string;
-  vehiculo_patente: string;
-  vehiculo_marca: string;
-  vehiculo_modelo: string;
-  vehiculo_anio?: number;
-  vehiculo_km?: number;
+  cliente: {
+    rut: string;
+    nombre: string;
+    telefono?: string;
+    email?: string;
+  };
+  vehiculo: {
+    patente: string;
+    marca: string;
+    modelo: string;
+    kilometraje?: number;
+  };
   realizado_por?: string;
   revisado_por?: string;
   items: {
@@ -74,10 +83,17 @@ export function useWorkOrders(search?: string) {
       
       // Adaptar datos del backend al formato esperado
       return data.map((wo: any) => {
+        const detallesArray = wo.detalles || wo.items || [];
         console.log("🔍 Procesando orden:", {
           id: wo.id,
-          vehiculo_raw: wo.vehiculo,
-          patente_vehiculo: wo.patente_vehiculo,
+          numero_orden: wo.numero_orden_papel,
+          tiene_items: !!wo.items,
+          tiene_detalles: !!wo.detalles,
+          items_count: (wo.items || []).length,
+          detalles_count: (wo.detalles || []).length,
+          detalles_finales: detallesArray.length,
+          raw_items: wo.items,
+          raw_detalles: wo.detalles,
         });
         
         return {
@@ -107,7 +123,17 @@ export function useWorkOrders(search?: string) {
             telefono: null,
           },
           mecanico_asignado: wo.realizado_por ? { nombre: wo.realizado_por } : null,
-          detalles: wo.items || [],
+          detalles: (wo.detalles || wo.items || []).map((item: any) => ({
+            id: item.id?.toString() || Math.random().toString(),
+            servicio_nombre: item.servicio_nombre || item.nombre || "Sin nombre",
+            descripcion: item.descripcion || null,
+            precio: item.precio || 0,
+            producto: item.producto || item.product_sku ? {
+              id: item.producto?.id || item.product_id || "0",
+              sku: item.producto?.sku || item.product_sku || "",
+              nombre: item.producto?.nombre || item.product_nombre || "",
+            } : null,
+          })),
           createdByName: wo.realizado_por || "",
           createdAt: wo.fecha_creacion || wo.createdAt || new Date().toISOString(),
         };
@@ -164,10 +190,18 @@ export function useCreateWorkOrder() {
       return responseData;
     },
     onSuccess: () => {
+      // Invalidar todas las queries relacionadas
       queryClient.invalidateQueries({ queryKey: ["work-orders"] });
       queryClient.invalidateQueries({ queryKey: ["clients"] });
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["reports"] });
+      queryClient.invalidateQueries({ queryKey: ["global-search"] });
+      
+      // Forzar refetch inmediato
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ["clients"] });
+        queryClient.refetchQueries({ queryKey: ["work-orders"] });
+      }, 100);
     },
   });
 }

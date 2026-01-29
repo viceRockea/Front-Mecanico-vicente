@@ -26,7 +26,14 @@ export function useClients() {
         headers: getAuthHeaders(),
       });
       if (!res.ok) throw new Error("Error al cargar clientes");
-      return res.json();
+      const data = await res.json();
+      
+      // Ordenar clientes por fecha de creación descendente (más nuevos primero)
+      return data.sort((a: any, b: any) => {
+        const dateA = new Date(a.createdAt || a.fecha_creacion || 0).getTime();
+        const dateB = new Date(b.createdAt || b.fecha_creacion || 0).getTime();
+        return dateB - dateA; // Más nuevos primero
+      });
     },
   });
 }
@@ -48,6 +55,10 @@ export function useCreateClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
+      // Refetch inmediato para que aparezca al principio
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ["clients"] });
+      }, 100);
     },
   });
 }
