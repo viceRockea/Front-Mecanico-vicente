@@ -8,6 +8,7 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
+    DialogDescription,
     DialogTrigger,
 } from "@/components/ui/dialog";
 import {
@@ -204,7 +205,7 @@ export function AddProductDialog() {
                         </div>
                         <div>
                             <DialogTitle className="text-base font-bold text-slate-800 uppercase tracking-wide">Nuevo Repuesto</DialogTitle>
-                            <p className="text-xs text-slate-400 font-medium">Complete la información del producto</p>
+                            <DialogDescription className="text-xs text-slate-400 font-medium">Complete la información del producto</DialogDescription>
                         </div>
                     </div>
                     {/* Duplicate X removed */}

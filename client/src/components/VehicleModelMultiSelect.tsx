@@ -1,10 +1,14 @@
-import { useState, useEffect, useRef } from "react";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { X, Search, Loader2, Car } from "lucide-react";
-import { useSearchVehicleModels, useVehicleModelBrands, useVehicleModelsByBrand, type VehicleModel } from "@/hooks/use-vehicle-models";
+import { useState } from "react";
+import { X, Car, Plus, AlertCircle, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import {
+  useCreateVehicleModel,
+  type VehicleModel,
+} from "@/hooks/use-vehicle-models";
 
 interface VehicleModelMultiSelectProps {
   selectedModels: VehicleModel[];
@@ -12,239 +16,205 @@ interface VehicleModelMultiSelectProps {
   className?: string;
 }
 
-export function VehicleModelMultiSelect({ 
-  selectedModels, 
-  onModelsChange, 
-  className 
+export function VehicleModelMultiSelect({
+  selectedModels,
+  onModelsChange,
+  className,
 }: VehicleModelMultiSelectProps) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [selectedBrand, setSelectedBrand] = useState<string>("all");
-  const [searchFocused, setSearchFocused] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const { toast } = useToast();
 
-  const { data: brands = [], isLoading: brandsLoading } = useVehicleModelBrands();
-  
-  // Debounce para búsqueda (400ms - dentro del rango 300-500ms)
-  useEffect(() => {
-    // Cancelar request anterior si existe
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+  // Use strings for manual inputs to avoid NaN warnings
+  const [manualBrand, setManualBrand] = useState("");
+  const [manualModel, setManualModel] = useState("");
+  const [manualYearStart, setManualYearStart] = useState("");
+  const [manualYearEnd, setManualYearEnd] = useState("");
 
-    const timer = setTimeout(() => {
-      // Solo buscar si hay al menos 2 caracteres
-      if (searchQuery.length >= 2) {
-        abortControllerRef.current = new AbortController();
-        setDebouncedSearch(searchQuery);
-      } else {
-        setDebouncedSearch("");
-      }
-    }, 400);
-    
-    return () => {
-      clearTimeout(timer);
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, [searchQuery]);
-  
-  // Búsqueda global si no hay marca seleccionada
-  const { data: searchResults = [], isLoading: searchLoading } = useSearchVehicleModels(
-    selectedBrand === "all" ? debouncedSearch : "",
-  );
-  
-  // Modelos por marca si hay una marca seleccionada
-  const { data: brandModels = [], isLoading: brandLoading } = useVehicleModelsByBrand(
-    selectedBrand !== "all" ? selectedBrand : "",
-  );
-
-  // Decidir qué resultados mostrar
-  const availableModels = selectedBrand === "all" 
-    ? searchResults 
-    : brandModels.filter(m => 
-        debouncedSearch.length < 2 || 
-        m.modelo.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-        m.anio.toString().includes(debouncedSearch)
-      );
-
-  const isLoading = searchLoading || brandLoading;
-
-  const handleSelectModel = (model: VehicleModel) => {
-    // Evitar duplicados
-    const exists = selectedModels.some(m => m.id === model.id);
-    if (!exists) {
-      onModelsChange([...selectedModels, model]);
-    }
-    setSearchQuery("");
-    setShowDropdown(false);
-  };
+  const createModelMutation = useCreateVehicleModel();
 
   const handleRemoveModel = (modelId: string) => {
-    onModelsChange(selectedModels.filter(m => m.id !== modelId));
+    onModelsChange(selectedModels.filter((m) => m.id !== modelId));
   };
 
-  const filteredAvailableModels = availableModels.filter(
-    model => !selectedModels.some(selected => selected.id === model.id)
-  );
+  const handleCreateManual = async () => {
+    if (!manualBrand || !manualModel || !manualYearStart) {
+      toast({
+        title: "Faltan datos",
+        description: "Debe ingresar Marca, Modelo y Año de inicio.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  // Mostrar dropdown solo si hay búsqueda >= 2 caracteres o si hay marca seleccionada
-  const shouldShowDropdown = showDropdown && (
-    (debouncedSearch.length >= 2 && selectedBrand === "all") ||
-    (selectedBrand !== "all" && debouncedSearch.length >= 2) ||
-    (selectedBrand !== "all" && searchQuery.length === 0)
-  );
+    const startYear = parseInt(manualYearStart);
+    const endYear = manualYearEnd ? parseInt(manualYearEnd) : startYear;
+
+    if (isNaN(startYear) || startYear < 1900 || startYear > 2100) {
+      toast({
+        title: "Año inválido",
+        description: "El año debe ser un número entre 1900 y 2100.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (endYear < startYear) {
+      toast({
+        title: "Rango inválido",
+        description: "El año final no puede ser menor al inicial.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const newModels: VehicleModel[] = [];
+
+    for (let y = startYear; y <= endYear; y++) {
+      try {
+        const m = await createModelMutation.mutateAsync({
+          marca: manualBrand.trim().toUpperCase(),
+          modelo: manualModel.trim().toUpperCase(),
+          anio: y
+        });
+        newModels.push(m);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    if (newModels.length > 0) {
+      // Add only ones that are not already selected (by ID)
+      // Though unlikely to collide if they are new, but good practice.
+      const currentIds = new Set(selectedModels.map(m => m.id));
+      const uniquenewModels = newModels.filter(m => !currentIds.has(m.id));
+
+      if (uniquenewModels.length > 0) {
+        onModelsChange([...selectedModels, ...uniquenewModels]);
+        toast({
+          title: "Vehículos agregados",
+          description: `${uniquenewModels.length} vehículos agregados correctamente.`,
+          className: "bg-emerald-50 text-emerald-900 border-emerald-200",
+        });
+      }
+
+      // Reset form
+      setManualBrand("");
+      setManualModel("");
+      setManualYearStart("");
+      setManualYearEnd("");
+    }
+  };
+
 
   return (
-    <div className={cn("space-y-3", className)}>
-      {/* Selector de Marca */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
-          <label className="text-xs font-medium text-slate-600 mb-1.5 block">
-            Marca del vehículo
-          </label>
-          <Select value={selectedBrand} onValueChange={setSelectedBrand}>
-            <SelectTrigger className="h-10 bg-white border-slate-300">
-              <SelectValue placeholder="Todas las marcas" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas las marcas</SelectItem>
-              {brands.map((brand) => (
-                <SelectItem key={brand} value={brand}>
-                  {brand}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {/* Buscador con autocomplete */}
-      <div className="relative">
-        <label className="text-xs font-medium text-slate-600 mb-1.5 block">
-          Buscar modelo y año
-        </label>
-        <div className="relative">
-          {!searchFocused && !searchQuery && (
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none z-10" />
-          )}
-          {isLoading && searchQuery.length >= 2 && (
-            <Loader2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary animate-spin pointer-events-none z-10" />
-          )}
-          <Input
-            placeholder=""
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setShowDropdown(true);
-            }}
-            onFocus={() => {
-              setSearchFocused(true);
-              setShowDropdown(true);
-            }}
-            onBlur={() => {
-              setSearchFocused(false);
-              // Delay para permitir clicks en resultados
-              setTimeout(() => setShowDropdown(false), 200);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setSearchQuery("");
-                setShowDropdown(false);
-              }
-            }}
-            className={cn(
-              "h-11 bg-white border-slate-300 transition-all duration-200",
-              (searchFocused || searchQuery) ? "pl-3" : "pl-10"
-            )}
-          />
-          {searchQuery && (
-            <button
-              onClick={() => {
-                setSearchQuery("");
-                setShowDropdown(false);
-              }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors z-10"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-        {/* Dropdown de Resultados (Autocomplete) */}
-        {shouldShowDropdown && (
-          <div 
-            className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-[280px] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {isLoading ? (
-              <div className="py-6 text-center">
-                <Loader2 className="w-6 h-6 animate-spin text-primary mx-auto mb-2" />
-                <p className="text-sm text-slate-500">Buscando modelos...</p>
-              </div>
-            ) : filteredAvailableModels.length === 0 ? (
-              <div className="py-6 text-center">
-                <Car className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                <p className="text-sm text-slate-600 font-medium">Sin resultados</p>
-                {searchQuery.length > 0 && searchQuery.length < 2 && (
-                  <p className="text-xs text-slate-400 mt-1">Escribe al menos 2 caracteres</p>
-                )}
-              </div>
-            ) : (
-              <div className="py-1">
-                {filteredAvailableModels.map((model) => (
-                  <button
-                    key={model.id}
-                    onClick={() => handleSelectModel(model)}
-                    className="w-full text-left px-3 py-2.5 hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0"
-                  >
-                    <div className="font-medium text-slate-900 text-sm">
-                      {model.marca} – {model.modelo} – {model.anio}
-                    </div>
-                    <div className="text-xs text-slate-500 mt-0.5">
-                      Año: {model.anio}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Chips de modelos seleccionados */}
-      {selectedModels.length > 0 && (
-        <div className="flex flex-wrap gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
-          {selectedModels.map((model) => (
-            <Badge
-              key={model.id}
-              variant="secondary"
-              className="px-3 py-1.5 bg-blue-100 text-blue-800 hover:bg-blue-200 border border-blue-200 gap-1.5"
-            >
-              <Car className="w-3 h-3" />
-              <span className="font-medium">
-                {model.marca} {model.modelo} {model.anio}
-              </span>
+    <div className={cn("space-y-4", className)}>
+      {/* 1. Chips of Selected Models */}
+      {/* 1. List of Selected Models */}
+      {selectedModels.length > 0 ? (
+        <div className="border border-slate-200 rounded-lg overflow-hidden">
+          <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex justify-between items-center">
+            <span className="text-xs font-bold text-slate-700 uppercase">Vehículos Compatibles ({selectedModels.length})</span>
+            {selectedModels.length > 1 && (
               <button
                 type="button"
-                onClick={() => handleRemoveModel(model.id)}
-                className="ml-1 hover:bg-blue-300 rounded-full p-0.5 transition-colors"
+                onClick={() => onModelsChange([])}
+                className="text-[10px] text-red-500 hover:text-red-700 uppercase font-bold"
               >
-                <X className="w-3 h-3" />
+                Limpiar Todo
               </button>
-            </Badge>
-          ))}
+            )}
+          </div>
+          <div className="max-h-[200px] overflow-y-auto bg-white divide-y divide-slate-100">
+            {selectedModels.map((model, index) => (
+              <div key={`${model.id}-${index}`} className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors group">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+                    <Car className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">{model.marca} {model.modelo}</p>
+                    <p className="text-xs text-slate-500">Año: {model.anio}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveModel(model.id)}
+                  className="text-slate-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm text-slate-500 italic p-4 border border-dashed border-slate-200 rounded-lg text-center bg-slate-50">
+          No hay vehículos asociados aún. Use el formulario de abajo para agregar uno o más vehículos.
         </div>
       )}
 
-      {/* Mensaje si no hay modelos seleccionados */}
-      {selectedModels.length === 0 && (
-        <div className="text-xs text-slate-500 italic">
-          No hay modelos compatibles seleccionados. Usa el buscador para agregar.
+      {/* Manual Entry Form - Always Visible */}
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+        <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 flex items-center gap-2">
+          <Plus className="w-4 h-4 text-slate-600" />
+          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">Agregar Compatibilidad</h4>
         </div>
-      )}
+
+        <div className="p-4 grid grid-cols-12 gap-3 items-end">
+          <div className="col-span-12 sm:col-span-4 space-y-1.5">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Marca</label>
+            <Input
+              className="h-9 text-sm uppercase font-medium placeholder:normal-case"
+              placeholder="Ej: Toyota"
+              value={manualBrand}
+              onChange={e => setManualBrand(e.target.value.toUpperCase())}
+            />
+          </div>
+          <div className="col-span-12 sm:col-span-4 space-y-1.5">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Modelo</label>
+            <Input
+              className="h-9 text-sm uppercase font-medium placeholder:normal-case"
+              placeholder="Ej: Yaris"
+              value={manualModel}
+              onChange={e => setManualModel(e.target.value.toUpperCase())}
+            />
+          </div>
+          <div className="col-span-6 sm:col-span-2 space-y-1.5">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Año Desde</label>
+            <Input
+              type="number"
+              className="h-9 text-sm"
+              placeholder="2018"
+              value={manualYearStart}
+              onChange={e => setManualYearStart(e.target.value)}
+            />
+          </div>
+          <div className="col-span-6 sm:col-span-2 space-y-1.5">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Hasta</label>
+            <Input
+              type="number"
+              className="h-9 text-sm"
+              placeholder="2022"
+              value={manualYearEnd}
+              onChange={e => setManualYearEnd(e.target.value)}
+            />
+          </div>
+          <div className="col-span-12 pt-1">
+            <Button
+              type="button"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+              onClick={handleCreateManual}
+              disabled={createModelMutation.isPending}
+            >
+              {createModelMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+              Agregar Vehículo(s)
+            </Button>
+            <div className="mt-2 flex items-center justify-center gap-1.5 text-[10px] text-slate-400">
+              <AlertCircle className="w-3 h-3" />
+              <span>Se crearán automáticamente los modelos para cada año del rango.</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
