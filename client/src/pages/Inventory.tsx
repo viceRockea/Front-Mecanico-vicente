@@ -1,11 +1,11 @@
 import { useState, useMemo } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { useToast } from "@/hooks/use-toast";
-import { useProducts, useCreateProduct, useDeleteProduct, useUpdateProduct } from "@/hooks/use-products";
+import { useProducts, useDeleteProduct, useUpdateProduct } from "@/hooks/use-products";
 import { useCategories } from "@/hooks/use-categories";
 import { useAuth } from "@/hooks/use-auth";
 import { AddProductDialog } from "@/components/products/AddProductDialog";
-import { DataTable } from "@/components/inventory/data-table";
+import { DataTable } from "@/components/ui/data-table"; // Generic DataTable
 import { createColumns } from "@/components/inventory/columns";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { VehicleModelMultiSelect } from "@/components/VehicleModelMultiSelect";
-import { Loader2, DollarSign, Filter, RefreshCcw } from "lucide-react";
+import { Loader2, DollarSign, Filter, RefreshCcw, Search } from "lucide-react";
 import type { VehicleModel } from "@/hooks/use-vehicle-models";
 
 export default function Inventory() {
@@ -25,7 +25,9 @@ export default function Inventory() {
   const isAdmin = user?.role === "ADMIN" || user?.role === "administrador";
 
   // Filter State
+  const [searchValue, setSearchValue] = useState("");
   const [stockFilter, setStockFilter] = useState("all"); // all, low, out
+  const [categoryFilter, setCategoryFilter] = useState("all");
 
   // Derived Data: Filtered Products
   const filteredProducts = useMemo(() => {
@@ -34,9 +36,28 @@ export default function Inventory() {
       if (stockFilter === "low" && product.stock_actual > product.stock_minimo) return false;
       if (stockFilter === "out" && product.stock_actual > 0) return false;
 
+      // 2. Category Filter
+      if (categoryFilter !== "all" && product.categoria?.nombre !== categoryFilter) return false;
+
+      // 3. Search Filter
+      if (searchValue) {
+        const searchLower = searchValue.toLowerCase();
+        const compat = product.modelosCompatibles || product.compatibilidades || [];
+        const compatString = compat.map((c: any) => `${c.marca} ${c.modelo} ${c.anio}`).join(" ");
+
+        const searchString = (
+          (product.sku || "") + " " +
+          (product.nombre || "") + " " +
+          (product.marca || "") + " " +
+          compatString
+        ).toLowerCase();
+
+        if (!searchString.includes(searchLower)) return false;
+      }
+
       return true;
     });
-  }, [products, stockFilter]);
+  }, [products, stockFilter, categoryFilter, searchValue]);
 
 
   const deleteMutation = useDeleteProduct();
@@ -90,40 +111,6 @@ export default function Inventory() {
     )
   }
 
-  // Define Custom Filters UI
-  const customFilters = (
-    <>
-      <div className="w-[1px] h-8 bg-slate-200 hidden md:block" />
-
-      {/* STOCK FILTER */}
-      <Select value={stockFilter} onValueChange={setStockFilter}>
-        <SelectTrigger className="h-10 w-[200px] bg-slate-50 border-dashed flex items-center">
-          <div className="flex items-center gap-2">
-            <Filter className="w-3.5 h-3.5 text-slate-500" />
-            <SelectValue placeholder="Estado Stock" />
-          </div>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">Todos los Estados</SelectItem>
-          <SelectItem value="low" className="text-orange-600 font-medium">Bajo Stock</SelectItem>
-          <SelectItem value="out" className="text-red-600 font-medium">Agotado</SelectItem>
-        </SelectContent>
-      </Select>
-
-      {stockFilter !== "all" && (
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setStockFilter("all")}
-          className="h-10 w-10 text-slate-400 hover:text-rose-500"
-          title="Limpiar filtros"
-        >
-          <RefreshCcw className="w-3.5 h-3.5" />
-        </Button>
-      )}
-    </>
-  );
-
   return (
     <div className="space-y-6 h-full flex flex-col">
       <PageHeader
@@ -132,14 +119,76 @@ export default function Inventory() {
         action={isAdmin ? <AddProductDialog /> : undefined}
       />
 
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+        {/* Filters Toolbar */}
+        <div className="flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center">
+
+          {/* SEARCH */}
+          <div className="relative w-full lg:w-[350px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              placeholder="Buscar por nombre, SKU, marca..."
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+              className="pl-10 h-10 bg-slate-50 border-slate-200 focus:bg-white transition-colors"
+            />
+          </div>
+
+          <div className="flex flex-1 flex-col md:flex-row gap-3 w-full lg:w-auto items-center flex-wrap lg:justify-end">
+            {/* CATEGORY FILTER */}
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="h-10 w-full md:w-[200px] bg-slate-50 border-dashed flex items-center">
+                <SelectValue placeholder="Categoría" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las Categorías</SelectItem>
+                {categories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.nombre}>
+                    {cat.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* STOCK FILTER */}
+            <Select value={stockFilter} onValueChange={setStockFilter}>
+              <SelectTrigger className="h-10 w-full md:w-[200px] bg-slate-50 border-dashed flex items-center">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-3.5 h-3.5 text-slate-500" />
+                  <SelectValue placeholder="Estado Stock" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los Estados</SelectItem>
+                <SelectItem value="low" className="text-orange-600 font-medium">Bajo Stock</SelectItem>
+                <SelectItem value="out" className="text-red-600 font-medium">Agotado</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {(stockFilter !== "all" || categoryFilter !== "all" || searchValue !== "") && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setStockFilter("all");
+                  setCategoryFilter("all");
+                  setSearchValue("");
+                }}
+                className="h-10 w-10 text-slate-400 hover:text-rose-500"
+                title="Limpiar filtros"
+              >
+                <RefreshCcw className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto flex flex-col">
         <DataTable
           columns={columns}
           data={filteredProducts}
-          categories={categories}
-          searchKey="nombre"
-          searchPlaceholder="Buscar por nombre, SKU, marca..."
-          customFilters={customFilters}
+          isLoading={isLoading}
         />
       </div>
 
@@ -374,14 +423,14 @@ function EditProductDialog({ product, open, onOpenChange, categories }: { produc
                     <FormItem>
                       <FormLabel className="text-xs font-bold uppercase text-slate-500">Stock Actual</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="text" 
+                        <Input
+                          type="text"
                           value={field.value ? field.value.toLocaleString('es-CL') : ""}
                           onChange={(e) => {
                             const value = e.target.value.replace(/\D/g, '');
                             field.onChange(parseInt(value) || 0);
                           }}
-                          className="bg-white font-mono font-medium" 
+                          className="bg-white font-mono font-medium"
                         />
                       </FormControl>
                       <FormMessage />
@@ -396,14 +445,14 @@ function EditProductDialog({ product, open, onOpenChange, categories }: { produc
                     <FormItem>
                       <FormLabel className="text-xs font-bold uppercase text-slate-500">Stock Mínimo</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="text" 
+                        <Input
+                          type="text"
                           value={field.value ? field.value.toLocaleString('es-CL') : ""}
                           onChange={(e) => {
                             const value = e.target.value.replace(/\D/g, '');
                             field.onChange(parseInt(value) || 0);
                           }}
-                          className="bg-white font-mono font-medium border-amber-200 focus:border-amber-400" 
+                          className="bg-white font-mono font-medium border-amber-200 focus:border-amber-400"
                         />
                       </FormControl>
                       <FormMessage />

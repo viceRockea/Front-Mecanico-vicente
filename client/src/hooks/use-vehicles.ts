@@ -9,6 +9,7 @@ export interface Vehicle {
   anio?: number;
   color?: string;
   cliente_id: string;
+  kilometraje?: number;
 }
 
 export interface CreateVehicleDTO {

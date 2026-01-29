@@ -1,14 +1,16 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DataTable } from "@/components/ui/data-table"; // Generic DataTable
+import { createColumns, ClienteDetalle } from "@/components/clients/columns"; // Import columns and type
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Search, User, Car, Phone, FileText, Mail, MapPin, Calendar, DollarSign, Wrench, ChevronRight, ChevronDown, X, Check, Loader2, Edit, Trash2, Save } from "lucide-react";
 import { useGlobalSearch } from "@/hooks/use-reports";
 import { useClients, useUpdateClient, useDeleteClient } from "@/hooks/use-clients";
 import { useWorkOrders } from "@/hooks/use-work-orders";
+import { useVehicles } from "@/hooks/use-vehicles";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
@@ -24,16 +26,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-interface ClienteDetalle {
-  id: string;
-  nombre: string;
-  rut: string;
-  telefono?: string;
-  email?: string;
-  direccion?: string;
-  cantidad_ordenes?: number;
-}
-
 export default function Clients() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -48,22 +40,44 @@ export default function Clients() {
   const [selectedOrderDetail, setSelectedOrderDetail] = useState<any>(null);
   const [showOrderDetailSheet, setShowOrderDetailSheet] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  
-  const { toast } = useToast();
-  
-  // Obtener todos los clientes
-  const { data: allClients = [], isLoading: isLoadingClients } = useClients();
-  
+
   // Obtener todas las órdenes de trabajo
   const { data: allWorkOrders = [] } = useWorkOrders();
-  
+  const { data: vehicles = [] } = useVehicles();
+
+  const selectedOrderDetailWithVehicle = useMemo(() => {
+    if (!selectedOrderDetail) return null;
+    if (selectedOrderDetail.vehiculo && selectedOrderDetail.vehiculo.marca && selectedOrderDetail.vehiculo.marca !== "Sin Marca") {
+      return selectedOrderDetail;
+    }
+    const found = vehicles.find((v: any) => v.patente === selectedOrderDetail.patente_vehiculo);
+    if (found) {
+      return {
+        ...selectedOrderDetail,
+        vehiculo: {
+          ...found,
+          marca: found.marca,
+          modelo: found.modelo,
+          patente: found.patente,
+          kilometraje: (found as any).kilometraje || selectedOrderDetail.kilometraje || selectedOrderDetail.vehiculo?.kilometraje
+        }
+      };
+    }
+    return selectedOrderDetail;
+  }, [selectedOrderDetail, vehicles]);
+
+  const { toast } = useToast();
+
+  // Obtener todos los clientes
+  const { data: allClients = [], isLoading: isLoadingClients } = useClients();
+
   // Mutations
   const updateClient = useUpdateClient();
   const deleteClient = useDeleteClient();
-  
+
   // Buscador global desde el backend (solo cuando hay búsqueda)
   const { data: searchResults, isLoading: isSearching } = useGlobalSearch(debouncedSearch);
-  
+
   // Debounce para búsqueda (400ms - dentro del rango 300-500ms)
   useEffect(() => {
     // Cancelar request anterior si existe
@@ -80,7 +94,7 @@ export default function Clients() {
         setDebouncedSearch("");
       }
     }, 400);
-    
+
     return () => {
       clearTimeout(timer);
       if (abortControllerRef.current) {
@@ -113,6 +127,17 @@ export default function Clients() {
     setSearch("");
     setDebouncedSearch("");
     setSearchFocused(false);
+    // Open detailed view immediately or filter table?
+    // Current logic: Just selects it. The UI probably filters.
+    // Let's open the drawer if selected from dropdown?
+    // The original code was: handleSelectFromDropdown -> setSelectedClient -> Clear Search.
+    // It seems it was just for selection context? But `selectedClient` usage is unclear in original snippets besides clearing it.
+    // Wait, original code had: `const ordenesDelCliente = editedClient ? ...`
+    // And `handleClientClick` sets `editedClient`.
+    // `handleSelectFromDropdown` sets `selectedClient`.
+    // It seems `selectedClient` variable might be redundant if we just open drawer.
+    // Let's just open drawer for consistency.
+    handleClientClick(cliente);
   };
 
   // Limpiar selección de cliente
@@ -125,7 +150,7 @@ export default function Clients() {
   // Iniciar edición
   const handleStartEdit = () => {
     setIsEditing(true);
-    setEditedClient(selectedClient);
+    setEditedClient(selectedClient); // Wait, usually we edit `editedClient`
   };
 
   // Cancelar edición
@@ -184,7 +209,7 @@ export default function Clients() {
 
       setShowDeleteDialog(false);
       setClientToDelete(null);
-      
+
       // Si estaba viendo el detalle del cliente eliminado, cerrar drawer
       if (editedClient?.id === clientToDelete.id) {
         setShowDetailDrawer(false);
@@ -206,46 +231,83 @@ export default function Clients() {
       orden => orden.cliente_nombre?.toLowerCase().includes(clienteNombre.toLowerCase())
     ).length;
   };
-  
+
   // Determinar qué clientes mostrar: búsqueda global o todos
   let clientesAMostrar = allClients;
-  
+
   // Si hay búsqueda, filtrar por nombre, RUT, email, teléfono
   if (search.length >= 2) {
     const searchLower = search.toLowerCase();
-    clientesAMostrar = allClients.filter(cliente => 
+    clientesAMostrar = allClients.filter(cliente =>
       cliente.nombre.toLowerCase().includes(searchLower) ||
       cliente.rut.toLowerCase().includes(searchLower) ||
       (cliente.email && cliente.email.toLowerCase().includes(searchLower)) ||
       (cliente.telefono && cliente.telefono.toLowerCase().includes(searchLower))
     );
   }
-  
+
   const isLoading = isLoadingClients || (search !== debouncedSearch && search.length >= 2);
 
   // Estado para mostrar/ocultar dropdown de resultados
   const showSearchResults = search.length >= 2 && (searchFocused || debouncedSearch.length >= 2);
   const hasSearchResults = searchResults && searchResults.clientes && searchResults.clientes.length > 0;
 
-  // Filtrar órdenes del cliente seleccionado
-  const ordenesDelCliente = editedClient 
-    ? allWorkOrders.filter(
-        orden => orden.cliente?.id === editedClient.id || orden.cliente?.rut === editedClient.rut
-      )
-    : [];
+  // Filtrar órdenes del cliente seleccionado (Detailed View) y enriquecer con datos de vehículo
+  const ordenesDelCliente = useMemo(() => {
+    if (!editedClient) return [];
+
+    const orders = allWorkOrders.filter(
+      orden => orden.cliente?.id === editedClient.id || orden.cliente?.rut === editedClient.rut
+    );
+
+    return orders.map((wo: any) => {
+      let vehicleInfo = wo.vehiculo;
+
+      // Lógica robusta de recuperación de vehículo (igual que en WorkOrders.tsx)
+      if (!vehicleInfo || !vehicleInfo.marca || vehicleInfo.marca === "Sin Marca") {
+        if (wo.vehicle) {
+          vehicleInfo = {
+            ...wo.vehicle,
+            marca: wo.vehicle.brand || wo.vehicle.make || wo.vehicle.marca,
+            modelo: wo.vehicle.model || wo.vehicle.modelo,
+            kilometraje: wo.vehicle.mileage || wo.vehicle.kilometraje,
+            patente: wo.vehicle.licensePlate || wo.vehicle.patente
+          };
+        } else {
+          const found = vehicles.find((v: any) => v.patente === wo.patente_vehiculo);
+          if (found) {
+            vehicleInfo = { ...found, marca: found.marca, modelo: found.modelo };
+          } else {
+            vehicleInfo = {
+              marca: wo.vehiculo_marca || wo.brand || wo.make || "Sin Marca",
+              modelo: wo.vehiculo_modelo || wo.model || "Sin Modelo",
+              kilometraje: wo.vehiculo_kilometraje || wo.mileage || wo.kilometraje
+            };
+          }
+        }
+      }
+
+      return {
+        ...wo,
+        vehiculo: vehicleInfo
+      };
+    }).sort((a: any, b: any) => new Date(b.fecha_ingreso).getTime() - new Date(a.fecha_ingreso).getTime());
+  }, [editedClient, allWorkOrders, vehicles]);
 
   const totalGastado = ordenesDelCliente.reduce((sum, orden) => {
     return sum + (orden.total_cobrado || 0);
   }, 0);
 
+  const columns = useMemo(() => createColumns(handleClientClick), []);
+
   return (
     <div className="space-y-6">
-      <PageHeader 
-        title="Gestión de Clientes" 
+      <PageHeader
+        title="Gestión de Clientes"
         description="Búsqueda de clientes, vehículos y órdenes de trabajo."
       />
 
-      <div className="card-industrial p-6 bg-white">
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
         {/* Búsqueda Principal con Autocompletado */}
         <div className="relative">
           {/* Input de Búsqueda */}
@@ -255,7 +317,7 @@ export default function Clients() {
           {isSearching && search.length >= 2 && (
             <Loader2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary animate-spin pointer-events-none z-10" />
           )}
-          <Input 
+          <Input
             placeholder=""
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -271,9 +333,8 @@ export default function Clients() {
                 setSearchFocused(false);
               }
             }}
-            className={`bg-slate-50 border-slate-200 rounded-lg h-12 text-base transition-all duration-200 ${
-              searchFocused || search ? 'pl-4' : 'pl-14'
-            }`}
+            className={`bg-slate-50 border-slate-200 rounded-lg h-12 text-base transition-all duration-200 ${searchFocused || search ? 'pl-4' : 'pl-14'
+              }`}
           />
           {search && (
             <button
@@ -289,7 +350,7 @@ export default function Clients() {
 
           {/* Dropdown de Resultados de Búsqueda (Autocompletado) */}
           {showSearchResults && (
-            <div 
+            <div
               className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-[400px] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
@@ -322,7 +383,7 @@ export default function Clients() {
                         return (
                           <button
                             key={cliente.id}
-                            onClick={() => handleSelectFromDropdown(cliente)}
+                            onClick={() => handleSelectFromDropdown(cliente as ClienteDetalle)}
                             className="w-full text-left px-3 py-3 rounded-md hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-200"
                           >
                             <div className="flex items-start justify-between gap-3">
@@ -358,100 +419,13 @@ export default function Clients() {
       </div>
 
       {/* Tabla de Clientes */}
-      <div className="card-industrial bg-white p-6">
-
-        {/* Tabla de Clientes */}
-        {isLoading && (
-          <div className="text-center py-12 text-muted-foreground">
-            <Search className="w-8 h-8 animate-pulse mx-auto mb-2" />
-            <p>Buscando clientes...</p>
-          </div>
-        )}
-
-        {!isLoading && clientesAMostrar.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">
-            <User className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="font-semibold">{search ? 'No se encontraron resultados' : 'No hay clientes registrados'}</p>
-            <p className="text-sm">{search ? `para "${search}"` : 'Agrega tu primer cliente para comenzar'}</p>
-          </div>
-        )}
-
-        {!isLoading && clientesAMostrar.length > 0 && (
-          <div className="rounded-lg border border-slate-200 overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-slate-50">
-                  <TableHead className="font-semibold">Nombre</TableHead>
-                  <TableHead className="font-semibold">RUT</TableHead>
-                  <TableHead className="font-semibold">Email</TableHead>
-                  <TableHead className="font-semibold">Teléfono</TableHead>
-                  <TableHead className="font-semibold">Dirección</TableHead>
-                  <TableHead className="font-semibold text-center">Órdenes</TableHead>
-                  <TableHead className="font-semibold text-center">Acción</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {clientesAMostrar.map((cliente) => (
-                  <TableRow 
-                    key={cliente.id}
-                    className="hover:bg-slate-50/80 cursor-pointer transition-colors"
-                    onClick={() => handleClientClick(cliente)}
-                  >
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        <User className="w-4 h-4 text-muted-foreground" />
-                        {cliente.nombre}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">{cliente.rut}</TableCell>
-                    <TableCell>
-                      {cliente.email ? (
-                        <div className="flex items-center gap-2 text-sm">
-                          <Mail className="w-3 h-3 text-muted-foreground" />
-                          {cliente.email}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {cliente.telefono ? (
-                        <div className="flex items-center gap-2 text-sm">
-                          <Phone className="w-3 h-3 text-muted-foreground" />
-                          {cliente.telefono}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {(cliente as any).direccion ? (
-                        <div className="max-w-xs truncate text-sm" title={(cliente as any).direccion}>
-                          {(cliente as any).direccion}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {(cliente as any).cantidad_ordenes && (cliente as any).cantidad_ordenes > 0 ? (
-                        <Badge variant="secondary">{(cliente as any).cantidad_ordenes}</Badge>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">0</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Button variant="ghost" size="sm" className="gap-1">
-                        Ver detalle
-                        <ChevronRight className="w-4 h-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <DataTable
+          columns={columns}
+          data={clientesAMostrar}
+          isLoading={isLoading}
+          onRowClick={handleClientClick}
+        />
       </div>
 
       {/* Drawer de Detalle del Cliente */}
@@ -629,6 +603,8 @@ export default function Clients() {
                       {ordenesDelCliente.map((orden) => {
                         const numeroOrden = orden.numero_orden_papel || 0;
                         const total = orden.total_cobrado || 0;
+                        const vehicleInfo = orden.vehiculo;
+
                         return (
                           <div key={orden.id} className="p-3 border border-slate-200 rounded-lg hover:border-primary/30 hover:shadow-sm transition-all">
                             <div className="flex items-center justify-between mb-2">
@@ -637,8 +613,8 @@ export default function Clients() {
                                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                   <Car className="w-3 h-3" />
                                   <span className="font-mono">{orden.patente_vehiculo || 'N/A'}</span>
-                                  {orden.vehiculo && (
-                                    <span>• {orden.vehiculo.marca} {orden.vehiculo.modelo}</span>
+                                  {vehicleInfo && (
+                                    <span>• {vehicleInfo.marca} {vehicleInfo.modelo}</span>
                                   )}
                                   <Calendar className="w-3 h-3 ml-2" />
                                   <span>{new Date(orden.fecha_ingreso).toLocaleDateString('es-CL')}</span>
@@ -646,21 +622,21 @@ export default function Clients() {
                               </div>
                               <p className="font-bold text-xl text-primary">${total.toLocaleString('es-CL')}</p>
                             </div>
-                            
+
                             <div className="flex items-center justify-between">
                               {orden.estado && (
-                                <Badge 
+                                <Badge
                                   variant={
                                     orden.estado === "FINALIZADA" ? "default" :
-                                    orden.estado === "EN_PROCESO" ? "secondary" :
-                                    "outline"
+                                      orden.estado === "EN_PROCESO" ? "secondary" :
+                                        "outline"
                                   }
                                   className="text-xs"
                                 >
                                   {orden.estado}
                                 </Badge>
                               )}
-                              
+
                               {/* Botón para expandir/colapsar servicios */}
                               {orden.detalles && orden.detalles.length > 0 && (
                                 <Button
@@ -735,10 +711,10 @@ export default function Clients() {
       <Sheet open={showOrderDetailSheet} onOpenChange={setShowOrderDetailSheet}>
         <SheetContent side="right" className="w-full sm:max-w-3xl overflow-y-auto">
           <SheetHeader>
-            <SheetTitle className="text-2xl">Detalle de Orden #{selectedOrderDetail?.numero_orden_papel}</SheetTitle>
+            <SheetTitle className="text-2xl">Detalle de Orden #{selectedOrderDetailWithVehicle?.numero_orden_papel}</SheetTitle>
           </SheetHeader>
 
-          {selectedOrderDetail && (
+          {selectedOrderDetailWithVehicle && (
             <div className="space-y-6 mt-6">
               {/* Información del Cliente */}
               <Card>
@@ -786,19 +762,19 @@ export default function Clients() {
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
                       <Label className="text-sm text-muted-foreground">Patente</Label>
-                      <p className="font-semibold font-mono text-lg">{selectedOrderDetail.patente_vehiculo || "—"}</p>
+                      <p className="font-semibold font-mono text-lg">{selectedOrderDetailWithVehicle.patente_vehiculo || "—"}</p>
                     </div>
                     <div>
                       <Label className="text-sm text-muted-foreground">Marca</Label>
-                      <p className="font-semibold">{selectedOrderDetail.vehiculo?.marca || "—"}</p>
+                      <p className="font-semibold">{selectedOrderDetailWithVehicle.vehiculo?.marca || "—"}</p>
                     </div>
                     <div>
                       <Label className="text-sm text-muted-foreground">Modelo</Label>
-                      <p className="font-semibold">{selectedOrderDetail.vehiculo?.modelo || "—"}</p>
+                      <p className="font-semibold">{selectedOrderDetailWithVehicle.vehiculo?.modelo || "—"}</p>
                     </div>
                     <div>
                       <Label className="text-sm text-muted-foreground">Kilometraje</Label>
-                      <p className="font-semibold">{selectedOrderDetail.vehiculo?.kilometraje ? selectedOrderDetail.vehiculo.kilometraje.toLocaleString('es-CL') + ' km' : "—"}</p>
+                      <p className="font-semibold">{selectedOrderDetailWithVehicle.vehiculo?.kilometraje ? selectedOrderDetailWithVehicle.vehiculo.kilometraje.toLocaleString('es-CL') + ' km' : "—"}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -821,11 +797,11 @@ export default function Clients() {
                     <div>
                       <Label className="text-sm text-muted-foreground">Estado</Label>
                       <div className="mt-1">
-                        <Badge 
+                        <Badge
                           variant={
                             selectedOrderDetail.estado === "FINALIZADA" ? "default" :
-                            selectedOrderDetail.estado === "EN_PROCESO" ? "secondary" :
-                            "outline"
+                              selectedOrderDetail.estado === "EN_PROCESO" ? "secondary" :
+                                "outline"
                           }
                         >
                           {selectedOrderDetail.estado}
@@ -855,9 +831,9 @@ export default function Clients() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {selectedOrderDetail.detalles && selectedOrderDetail.detalles.length > 0 ? (
+                  {selectedOrderDetailWithVehicle.detalles && selectedOrderDetailWithVehicle.detalles.length > 0 ? (
                     <div className="space-y-3">
-                      {selectedOrderDetail.detalles.map((detalle: any, idx: number) => (
+                      {selectedOrderDetailWithVehicle.detalles.map((detalle: any, idx: number) => (
                         <div key={idx} className="bg-slate-50 p-4 rounded-md border border-slate-200">
                           <div className="flex justify-between items-start mb-2">
                             <div className="flex items-start gap-3 flex-1">
@@ -882,12 +858,12 @@ export default function Clients() {
                           </div>
                         </div>
                       ))}
-                      
+
                       {/* Total */}
                       <div className="pt-4 mt-4 border-t-2 border-slate-200">
                         <div className="flex justify-between items-center bg-primary/5 p-4 rounded-lg">
                           <span className="text-lg font-bold text-slate-700">Total a Cobrar:</span>
-                          <span className="text-2xl font-bold text-primary">${selectedOrderDetail.total_cobrado.toLocaleString('es-CL')}</span>
+                          <span className="text-2xl font-bold text-primary">${selectedOrderDetailWithVehicle.total_cobrado.toLocaleString('es-CL')}</span>
                         </div>
                       </div>
                     </div>
