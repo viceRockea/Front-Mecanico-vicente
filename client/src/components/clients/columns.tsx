@@ -1,122 +1,110 @@
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
-import { MoreHorizontal, Eye, User, Mail, Phone } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { MoreHorizontal, Edit, Trash2, ArrowUpDown } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuLabel,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export interface ClienteDetalle {
+export type ClienteDetalle = {
     id: string;
-    nombre: string;
     rut: string;
+    nombre: string;
     telefono?: string;
     email?: string;
-    direccion?: string;
-    cantidad_ordenes?: number;
-}
+    total_compras: number;
+    ultima_visita?: string;
+};
 
 export const createColumns = (
-    onView: (cliente: ClienteDetalle) => void
+    onEdit: (client: ClienteDetalle) => void,
+    onDelete: (client: ClienteDetalle) => void
 ): ColumnDef<ClienteDetalle>[] => [
         {
             accessorKey: "nombre",
-            header: "Nombre",
-            cell: ({ row }) => (
-                <div className="flex items-center gap-2 font-medium text-slate-900">
-                    <User className="w-4 h-4 text-muted-foreground" />
-                    {row.getValue("nombre")}
-                </div>
-            ),
+            header: ({ column }) => {
+                return (
+                    <Button
+                        variant="ghost"
+                        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+                        className="-ml-4 hover:bg-transparent"
+                    >
+                        Nombre
+                        <ArrowUpDown className="ml-2 h-4 w-4" />
+                    </Button>
+                )
+            },
+            cell: ({ row }) => <div className="font-medium text-slate-900">{row.getValue("nombre")}</div>,
         },
         {
             accessorKey: "rut",
             header: "RUT",
-            cell: ({ row }) => <div className="font-mono text-sm">{row.getValue("rut")}</div>,
-        },
-        {
-            accessorKey: "email",
-            header: "Email",
-            cell: ({ row }) => {
-                const email = row.getValue("email") as string;
-                return email ? (
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <Mail className="w-3 h-3 text-muted-foreground" />
-                        {email}
-                    </div>
-                ) : (
-                    <span className="text-muted-foreground text-sm">—</span>
-                );
-            },
+            cell: ({ row }) => <div className="font-mono text-slate-600">{row.getValue("rut")}</div>,
         },
         {
             accessorKey: "telefono",
             header: "Teléfono",
-            cell: ({ row }) => {
-                const phone = row.getValue("telefono") as string;
-                return phone ? (
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <Phone className="w-3 h-3 text-muted-foreground" />
-                        {phone}
-                    </div>
-                ) : (
-                    <span className="text-muted-foreground text-sm">—</span>
-                );
-            },
+            cell: ({ row }) => <div className="text-slate-600">{row.getValue("telefono") || "—"}</div>,
         },
         {
-            accessorKey: "direccion",
-            header: "Dirección",
-            cell: ({ row }) => {
-                const address = row.getValue("direccion") as string;
-                return address ? (
-                    <div className="max-w-xs truncate text-sm text-slate-600" title={address}>
-                        {address}
-                    </div>
-                ) : (
-                    <span className="text-muted-foreground text-sm">—</span>
-                );
-            },
-        },
-        {
-            accessorKey: "cantidad_ordenes",
-            header: () => <div className="text-center">Órdenes</div>,
-            cell: ({ row }) => {
-                const count = row.getValue("cantidad_ordenes") as number;
+            accessorKey: "total_compras",
+            header: ({ column }) => {
                 return (
-                    <div className="text-center">
-                        {count > 0 ? (
-                            <Badge variant="secondary">{count}</Badge>
-                        ) : (
-                            <span className="text-muted-foreground text-sm">0</span>
-                        )}
-                    </div>
-                );
+                    <Button
+                        variant="ghost"
+                        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+                        className="-ml-4 hover:bg-transparent"
+                    >
+                        Total Gastado
+                        <ArrowUpDown className="ml-2 h-4 w-4" />
+                    </Button>
+                )
+            },
+            cell: ({ row }) => (
+                <div className="font-bold text-emerald-600">
+                    ${(row.getValue("total_compras") as number).toLocaleString('es-CL')}
+                </div>
+            ),
+        },
+        {
+            accessorKey: "ultima_visita",
+            header: "Última Visita",
+            cell: ({ row }) => {
+                const dateStr = row.getValue("ultima_visita") as string;
+                if (!dateStr) return <span className="text-slate-400 italic">Nunca</span>;
+                return <span className="text-slate-600">{new Date(dateStr).toLocaleDateString('es-CL')}</span>;
             },
         },
         {
             id: "actions",
             cell: ({ row }) => {
                 const client = row.original;
-
                 return (
-                    <div className="text-center">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onView(client);
-                            }}
-                        >
-                            <Eye className="w-4 h-4 mr-2" />
-                            Ver Detalle
-                        </Button>
-                    </div>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" className="h-8 w-8 p-0">
+                                <span className="sr-only">Abrir menú</span>
+                                <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Acciones</DropdownMenuLabel>
+                            <DropdownMenuItem onClick={() => onEdit(client)}>
+                                <Edit className="mr-2 h-4 w-4" /> Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                onClick={() => onDelete(client)}
+                                className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                            >
+                                <Trash2 className="mr-2 h-4 w-4" /> Eliminar
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 );
             },
         },

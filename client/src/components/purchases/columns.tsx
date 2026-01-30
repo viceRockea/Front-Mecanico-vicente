@@ -1,7 +1,7 @@
 import { Purchase } from "@/hooks/use-purchases";
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
-import { MoreHorizontal, Eye, Trash2, ShoppingCart } from "lucide-react";
+import { MoreHorizontal, Eye, Trash2, ShoppingCart, ArrowUpDown } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -10,7 +10,6 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
 
 export type PurchaseWithTotals = Purchase & {
     totalItems: number;
@@ -26,7 +25,18 @@ export const createColumns = (
 ): ColumnDef<PurchaseWithTotals>[] => [
         {
             accessorKey: "proveedor.nombre",
-            header: "Proveedor",
+            header: ({ column }) => {
+                return (
+                    <Button
+                        variant="ghost"
+                        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+                        className="-ml-4 hover:bg-transparent"
+                    >
+                        Proveedor
+                        <ArrowUpDown className="ml-2 h-4 w-4" />
+                    </Button>
+                )
+            },
             cell: ({ row }) => (
                 <div className="font-semibold text-slate-900">
                     {row.original.proveedor?.nombre || "Desconocido"}
@@ -35,57 +45,57 @@ export const createColumns = (
         },
         {
             accessorKey: "fecha",
-            header: "Fecha",
+            header: ({ column }) => {
+                return (
+                    <Button
+                        variant="ghost"
+                        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+                        className="-ml-4 hover:bg-transparent"
+                    >
+                        Fecha
+                        <ArrowUpDown className="ml-2 h-4 w-4" />
+                    </Button>
+                )
+            },
             cell: ({ row }) => {
                 const date = new Date(row.getValue("fecha"));
-                return <div className="text-slate-600">{date.toLocaleDateString('es-CL')}</div>;
+                return <div className="text-slate-600 font-medium">
+                    {date.toLocaleDateString("es-CL")}
+                </div>
             },
         },
         {
-            id: "items",
+            accessorKey: "totalItems",
             header: "Items",
             cell: ({ row }) => (
                 <div className="flex items-center gap-2">
                     <ShoppingCart className="w-4 h-4 text-slate-400" />
-                    <span className="font-medium text-slate-900">{row.original.totalItems} productos</span>
-                    <span className="text-xs text-slate-500">
-                        ({row.original.totalUnits} u)
-                    </span>
-                </div>
-            ),
-        },
-        {
-            accessorKey: "neto",
-            header: ({ column }) => (
-                <div className="text-right">Neto</div>
-            ),
-            cell: ({ row }) => (
-                <div className="text-right font-mono text-slate-900">
-                    ${row.original.neto.toLocaleString('es-CL')}
-                </div>
-            ),
-        },
-        {
-            accessorKey: "iva",
-            header: ({ column }) => (
-                <div className="text-right">IVA</div>
-            ),
-            cell: ({ row }) => (
-                <div className="text-right font-mono text-slate-600">
-                    ${row.original.iva.toLocaleString('es-CL')}
+                    <span>{row.original.totalItems} ítems ({row.original.totalUnits} un.)</span>
                 </div>
             ),
         },
         {
             accessorKey: "total",
-            header: ({ column }) => (
-                <div className="text-right">Total</div>
-            ),
-            cell: ({ row }) => (
-                <div className="text-right font-mono font-bold text-slate-900">
-                    ${row.original.total.toLocaleString('es-CL')}
-                </div>
-            ),
+            header: ({ column }) => {
+                return (
+                    <Button
+                        variant="ghost"
+                        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+                        className="-ml-4 hover:bg-transparent"
+                    >
+                        Total
+                        <ArrowUpDown className="ml-2 h-4 w-4" />
+                    </Button>
+                )
+            },
+            cell: ({ row }) => {
+                const amount = row.original.total;
+                return (
+                    <div className="font-bold text-emerald-600">
+                        ${amount.toLocaleString('es-CL')}
+                    </div>
+                )
+            },
         },
         {
             id: "actions",

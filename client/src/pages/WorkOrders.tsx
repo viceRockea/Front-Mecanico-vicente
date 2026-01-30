@@ -1,75 +1,84 @@
-
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { useWorkOrders, useDeleteWorkOrder, useCreateWorkOrder, useServicesCatalog, type CreateWorkOrderDTO, type WorkOrder } from "@/hooks/use-work-orders";
 import { useVehicles } from "@/hooks/use-vehicles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DataTable } from "@/components/ui/data-table";
 import { createColumns } from "@/components/work-orders/columns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Car, User, Calendar, DollarSign } from "lucide-react";
-import { Plus, Search, FileText, Loader2, Wrench, ChevronRight } from "lucide-react";
+import { Car, User, Calendar, Filter, RefreshCcw, ChevronDown, Wrench, Plus, Search, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useForm } from "react-hook-form";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { z } from "zod";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
 import { StatusBadge } from "@/components/StatusBadge";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  flexRender,
+  SortingState,
+  ColumnFiltersState,
+  VisibilityState,
+} from "@tanstack/react-table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 export default function WorkOrders() {
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState<WorkOrder | null>(null);
   const { data: workOrders = [], isLoading } = useWorkOrders();
   const { mutate: deleteWorkOrder } = useDeleteWorkOrder();
   const { data: vehicles = [] } = useVehicles();
   const { toast } = useToast();
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
 
-  // Client-side join logic
+  // Estados Tabla
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [rowSelection, setRowSelection] = useState({});
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('action') === 'new') {
+      setIsCreateOpen(true);
+      window.history.replaceState({}, '', '/work-orders');
+    }
+  }, []);
+
   const ordersWithVehicleRef = useMemo(() => {
     return workOrders.map((wo: any) => {
-      let vehicleInfo = wo.vehiculo;
+      const patente = wo.patente_vehiculo || wo.vehicle?.patente || wo.vehiculo?.patente;
+      const vehicleFromCatalog = vehicles.find((v: any) => v.patente === patente);
+      const vehicleFromOrder = wo.vehiculo || wo.vehicle;
 
-      // Intentar recuperar info si está plana o con keys en inglés
-      if (!vehicleInfo || !vehicleInfo.marca) {
-        // Primero buscar en el objeto 'vehicle' si existe
-        if (wo.vehicle) {
-          vehicleInfo = {
-            ...wo.vehicle,
-            marca: wo.vehicle.brand || wo.vehicle.make || wo.vehicle.marca,
-            modelo: wo.vehicle.model || wo.vehicle.modelo,
-            kilometraje: wo.vehicle.mileage || wo.vehicle.kilometraje,
-            patente: wo.vehicle.licensePlate || wo.vehicle.patente
-          };
-        } else {
-          // Si no, buscar en la lista global de vehículos
-          const found = vehicles.find((v: any) => v.patente === wo.patente_vehiculo);
-          if (found) {
-            vehicleInfo = { ...found, marca: found.marca, modelo: found.modelo };
-          } else {
-            // Fallback a propiedades planas
-            vehicleInfo = {
-              marca: wo.vehiculo_marca || wo.brand || wo.make || "Sin Marca",
-              modelo: wo.vehiculo_modelo || wo.model || "Sin Modelo",
-              kilometraje: wo.vehiculo_kilometraje || wo.mileage || wo.kilometraje
-            };
-          }
-        }
-      }
+      const vehicleInfo = {
+        marca: "Sin Marca",
+        modelo: "Sin Modelo",
+        patente: patente || "S/P",
+        kilometraje: 0,
+        ...(vehicleFromOrder && {
+          marca: vehicleFromOrder.marca || vehicleFromOrder.brand || vehicleFromOrder.make,
+          modelo: vehicleFromOrder.modelo || vehicleFromOrder.model,
+          kilometraje: vehicleFromOrder.kilometraje || vehicleFromOrder.mileage
+        }),
+        ...(vehicleFromCatalog && {
+          marca: vehicleFromCatalog.marca,
+          modelo: vehicleFromCatalog.modelo,
+          kilometraje: vehicleFromCatalog.kilometraje || vehicleFromOrder?.kilometraje || wo.kilometraje
+        }),
+        ...(wo.vehiculo_marca && { marca: wo.vehiculo_marca }),
+        ...(wo.vehiculo_modelo && { modelo: wo.vehiculo_modelo }),
+      };
 
       return {
         ...wo,
@@ -78,17 +87,18 @@ export default function WorkOrders() {
     });
   }, [workOrders, vehicles]);
 
-  // Filtrado
   const filteredOrders = useMemo(() => {
     return ordersWithVehicleRef.filter((wo: any) => {
       const searchLower = search.toLowerCase();
-      return (
+      const matchesSearch = (
         wo.numero_orden_papel?.toString().toLowerCase().includes(searchLower) ||
         wo.cliente?.nombre?.toLowerCase().includes(searchLower) ||
-        wo.patente_vehiculo?.toLowerCase().includes(searchLower)
+        wo.vehiculo?.patente?.toLowerCase().includes(searchLower)
       );
+      const matchesStatus = statusFilter === "all" || wo.estado === statusFilter;
+      return matchesSearch && matchesStatus;
     });
-  }, [ordersWithVehicleRef, search]);
+  }, [ordersWithVehicleRef, search, statusFilter]);
 
   const handleDelete = (wo: WorkOrder) => {
     if (confirm(`¿Estás seguro de eliminar la orden #${wo.numero_orden_papel}?`)) {
@@ -99,63 +109,158 @@ export default function WorkOrders() {
     }
   };
 
-  const handleEdit = (wo: WorkOrder) => {
-    alert("Editar no implementado aún");
-  };
-
   const columns = useMemo(() => createColumns(
     (wo) => setSelectedOrder(wo),
-    (wo) => handleEdit(wo),
+    (wo) => alert("Editar no implementado"),
     (wo) => handleDelete(wo)
   ), []);
 
+  const table = useReactTable({
+    data: filteredOrders,
+    columns,
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    onColumnVisibilityChange: setColumnVisibility,
+    onRowSelectionChange: setRowSelection,
+    state: {
+      sorting,
+      columnFilters,
+      columnVisibility,
+      rowSelection,
+    },
+  });
+
   const selectedOrderWithVehicle = useMemo(() => {
     if (!selectedOrder) return null;
-    const wo = selectedOrder as any;
-
-    // Misma lógica de enriquecimiento para el detalle
-    if (wo.vehiculo && wo.vehiculo.marca && wo.vehiculo.marca !== "Sin Marca") {
-      return wo;
-    }
-    const found = vehicles.find((v: any) => v.patente === wo.patente_vehiculo);
-    if (found) {
-      return {
-        ...wo,
-        vehiculo: {
-          ...found,
-          marca: found.marca,
-          modelo: found.modelo,
-          patente: found.patente,
-          kilometraje: found.kilometraje || wo.kilometraje || wo.vehiculo?.kilometraje
-        }
-      };
-    }
-    return wo;
-  }, [selectedOrder, vehicles]);
+    return ordersWithVehicleRef.find((o: any) => o.id === selectedOrder.id) || selectedOrder;
+  }, [selectedOrder, ordersWithVehicleRef]);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Órdenes de Trabajo"
         description="Gestione las órdenes de trabajo, seguimiento y facturación."
-        action={<CreateWorkOrderDialog />}
+        action={<CreateWorkOrderDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />}
       />
 
-      <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-        <Input
-          placeholder="Buscar por cliente, patente o número de orden..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-12 h-12 text-base rounded-xl border-slate-200 shadow-sm focus:border-primary focus:ring-primary/20"
-        />
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+        <div className="flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center">
+          <div className="relative w-full lg:w-[350px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              placeholder="Buscar por cliente, patente o Nº..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10 h-10 bg-slate-50 border-slate-200 focus:bg-white"
+            />
+          </div>
+
+          <div className="flex flex-1 flex-col md:flex-row gap-3 w-full lg:w-auto items-center flex-wrap lg:justify-end">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-10 w-full md:w-[200px] bg-slate-50 border-dashed">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-3.5 h-3.5 text-slate-500" />
+                  <SelectValue placeholder="Estado" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los Estados</SelectItem>
+                <SelectItem value="EN_PROCESO">En Proceso</SelectItem>
+                <SelectItem value="FINALIZADA">Finalizada</SelectItem>
+                <SelectItem value="ENTREGADA">Entregada</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* BOTÓN COLUMNAS */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="h-10 bg-slate-50 border-dashed">
+                  Columnas <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {table
+                  .getAllColumns()
+                  .filter((column) => column.getCanHide())
+                  .map((column) => (
+                    <DropdownMenuCheckboxItem
+                      key={column.id}
+                      className="capitalize"
+                      checked={column.getIsVisible()}
+                      onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                    >
+                      {column.id}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {(search || statusFilter !== "all") && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => { setSearch(""); setStatusFilter("all"); }}
+                className="h-10 w-10 text-slate-400 hover:text-rose-500"
+              >
+                <RefreshCcw className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <DataTable
-          columns={columns}
-          data={filteredOrders}
-        />
+      {/* TABLA MANUAL */}
+      <div className="rounded-md border bg-white">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id}>
+                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="h-24 text-center">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+                </TableCell>
+              </TableRow>
+            ) : table.getRowModel().rows?.length ? (
+              table.getRowModel().rows.map((row) => (
+                <TableRow key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="h-24 text-center">No hay órdenes.</TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* PAGINACIÓN */}
+      <div className="flex items-center justify-end space-x-2 py-4">
+        <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+          Anterior
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+          Siguiente
+        </Button>
       </div>
 
       <Sheet open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
@@ -165,7 +270,8 @@ export default function WorkOrders() {
               <SheetHeader>
                 <SheetTitle className="text-2xl">Detalle de Orden #{selectedOrderWithVehicle?.numero_orden_papel}</SheetTitle>
               </SheetHeader>
-              <div className="space-y-6 mt-6">
+              {/* Contenido del Sheet igual al anterior */}
+               <div className="space-y-6 mt-6">
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-lg flex items-center gap-2">
@@ -206,7 +312,7 @@ export default function WorkOrders() {
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
                         <Label className="text-sm text-muted-foreground">Patente</Label>
-                        <p className="font-semibold font-mono text-lg">{selectedOrderWithVehicle.patente_vehiculo || "—"}</p>
+                        <p className="font-semibold font-mono text-lg">{selectedOrderWithVehicle.vehiculo?.patente || "—"}</p>
                       </div>
                       <div>
                         <Label className="text-sm text-muted-foreground">Marca</Label>
@@ -317,12 +423,12 @@ export default function WorkOrders() {
   );
 }
 
-
-function CreateWorkOrderDialog() {
-  const [open, setOpen] = useState(false);
+// Dialogo de Creación (Igual que antes)
+function CreateWorkOrderDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { mutate: createWorkOrder, isPending } = useCreateWorkOrder();
   const { data: servicesCatalog = [], isLoading: isLoadingCatalog } = useServicesCatalog();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const form = useForm({
     defaultValues: {
@@ -340,7 +446,6 @@ function CreateWorkOrderDialog() {
     },
   });
 
-  // Estado dinámico para servicios basado en el catálogo
   const [services, setServices] = useState<Record<string, { checked: boolean; precio: number; descripcion: string; product_sku?: string; cantidad_producto?: number }>>({
     "Cambio Pastillas": { checked: false, precio: 0, descripcion: "" },
     "Cambio Discos": { checked: false, precio: 0, descripcion: "" },
@@ -360,7 +465,6 @@ function CreateWorkOrderDialog() {
   };
 
   const onSubmit = (data: any) => {
-    // Validar campos obligatorios del vehículo
     if (!data.vehiculo_patente || !data.vehiculo_marca || !data.vehiculo_modelo) {
       toast({
         title: "Campos requeridos",
@@ -370,7 +474,6 @@ function CreateWorkOrderDialog() {
       return;
     }
 
-    // Convertir los servicios seleccionados a items
     const items = Object.entries(services)
       .filter(([_, service]) => service.checked)
       .map(([serviceName, service]) => ({
@@ -381,45 +484,35 @@ function CreateWorkOrderDialog() {
         ...(service.cantidad_producto && { cantidad_producto: service.cantidad_producto }),
       }));
 
+    const patenteLimpia = data.vehiculo_patente.replace(/-/g, '').toUpperCase();
+
     const payload: CreateWorkOrderDTO = {
       numero_orden_papel: data.numero_orden_papel,
       realizado_por: data.realizado_por || undefined,
       revisado_por: data.revisado_por || undefined,
-      // Cliente - como objeto
       cliente: {
         nombre: data.cliente_nombre.trim(),
         rut: data.cliente_rut.trim(),
         email: data.cliente_email?.trim() || undefined,
         telefono: data.cliente_telefono?.trim() || undefined,
       },
-      // Vehículo - como objeto
       vehiculo: {
-        patente: data.vehiculo_patente.trim(),
+        patente: patenteLimpia,
         marca: data.vehiculo_marca.trim(),
         modelo: data.vehiculo_modelo.trim(),
         kilometraje: data.vehiculo_km || 0,
       },
-      // Items
       items,
     };
-
-    console.log("🚗 Datos del vehículo a enviar:", {
-      patente: data.vehiculo_patente,
-      marca: data.vehiculo_marca,
-      modelo: data.vehiculo_modelo,
-      kilometraje: data.vehiculo_km,
-    });
-    console.log("📦 Payload completo:", payload);
 
     createWorkOrder(payload, {
       onSuccess: () => {
         toast({
           title: "Orden Creada",
-          description: "La orden de trabajo ha sido creada exitosamente. El cliente se ha registrado automáticamente.",
+          description: "La orden de trabajo ha sido creada exitosamente.",
         });
-        setOpen(false);
+        onOpenChange(false);
         form.reset();
-        // Resetear servicios también
         setServices({
           "Cambio Pastillas": { checked: false, precio: 0, descripcion: "" },
           "Cambio Discos": { checked: false, precio: 0, descripcion: "" },
@@ -431,9 +524,12 @@ function CreateWorkOrderDialog() {
           "Revisión ABS": { checked: false, precio: 0, descripcion: "" },
           "Otros": { checked: false, precio: 0, descripcion: "" },
         });
+        
+        queryClient.invalidateQueries({ queryKey: ["/vehicles"] });
+        queryClient.invalidateQueries({ queryKey: ["/work-orders"] });
       },
       onError: (error: any) => {
-        console.error("Error al crear orden:", error); // Debug
+        console.error("Error al crear orden:", error);
         toast({
           title: "Error",
           description: error.message || "No se pudo crear la orden de trabajo.",
@@ -444,7 +540,7 @@ function CreateWorkOrderDialog() {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
         <Button className="gap-2">
           <Plus className="w-4 h-4" />
@@ -457,7 +553,7 @@ function CreateWorkOrderDialog() {
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            {/* Número de Orden y Responsables */}
+             {/* Número de Orden y Responsables */}
             <div className="grid grid-cols-3 gap-4">
               <FormField
                 control={form.control}
@@ -542,13 +638,11 @@ function CreateWorkOrderDialog() {
                           onChange={(e) => {
                             let value = e.target.value.replace(/[^0-9kK]/g, '');
                             if (value.length > 9) value = value.slice(0, 9);
-
                             if (value.length > 1) {
                               const dv = value.slice(-1);
                               const numbers = value.slice(0, -1);
                               value = numbers.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1.') + '-' + dv;
                             }
-
                             field.onChange(value);
                           }}
                         />
@@ -571,16 +665,12 @@ function CreateWorkOrderDialog() {
                           value={field.value ? (field.value.startsWith('+56 9 ') ? field.value : '+56 9 ' + field.value) : '+56 9 '}
                           onChange={(e) => {
                             let value = e.target.value;
-
-                            // Asegurar que siempre empiece con +56 9
                             if (!value.startsWith('+56 9 ')) {
                               value = '+56 9 ';
                             }
-
                             field.onChange(value);
                           }}
                           onFocus={(e) => {
-                            // Si está vacío al hacer foco, poner el prefijo
                             if (!e.target.value || e.target.value === '') {
                               field.onChange('+56 9 ');
                             }
@@ -624,10 +714,21 @@ function CreateWorkOrderDialog() {
                       </FormLabel>
                       <FormControl>
                         <Input
-                          placeholder="AB-1234"
-                          className="uppercase font-mono"
-                          required
                           {...field}
+                          placeholder="AB-1234"
+                          className="uppercase font-mono placeholder:normal-case"
+                          required
+                          maxLength={10}
+                          onChange={(e) => {
+                            let raw = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                            let formatted = raw;
+                            if (raw.length === 6) {
+                              formatted = raw.match(/.{1,2}/g)?.join('-') || raw;
+                            } else if (raw.length > 6) {
+                              formatted = raw.slice(0, 5) + '-' + raw.slice(5);
+                            }
+                            field.onChange(formatted);
+                          }}
                         />
                       </FormControl>
                       <FormMessage />
@@ -784,7 +885,7 @@ function CreateWorkOrderDialog() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setOpen(false)}
+                onClick={() => onOpenChange(false)}
                 disabled={isPending}
               >
                 Cancelar

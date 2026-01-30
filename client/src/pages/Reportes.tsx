@@ -66,52 +66,16 @@ export default function Reportes() {
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            {/* Nueva Orden */}
+            {/* Ver Inventario -> Nuevo Repuesto */}
             <Button
               variant="secondary"
               className="h-auto py-4 px-4 flex-col gap-2 bg-white/10 hover:bg-white/20 border-0 text-white backdrop-blur-sm transition-all hover:scale-105"
-              onClick={() => setLocation('/work-orders')}
-            >
-              <div className="w-10 h-10 rounded-xl bg-green-500/20 flex items-center justify-center">
-                <Wrench className="w-5 h-5 text-green-400" />
-              </div>
-              <span className="text-xs font-medium">Nueva Orden</span>
-            </Button>
-
-            {/* Venta Mostrador */}
-            <Button
-              variant="secondary"
-              className="h-auto py-4 px-4 flex-col gap-2 bg-white/10 hover:bg-white/20 border-0 text-white backdrop-blur-sm transition-all hover:scale-105"
-              onClick={() => setLocation('/counter-sales')}
-            >
-              <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
-                <Receipt className="w-5 h-5 text-blue-400" />
-              </div>
-              <span className="text-xs font-medium">Venta Mesón</span>
-            </Button>
-
-            {/* Ver Clientes */}
-            <Button
-              variant="secondary"
-              className="h-auto py-4 px-4 flex-col gap-2 bg-white/10 hover:bg-white/20 border-0 text-white backdrop-blur-sm transition-all hover:scale-105"
-              onClick={() => setLocation('/clients')}
-            >
-              <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
-                <Users className="w-5 h-5 text-purple-400" />
-              </div>
-              <span className="text-xs font-medium">Clientes</span>
-            </Button>
-
-            {/* Ver Inventario */}
-            <Button
-              variant="secondary"
-              className="h-auto py-4 px-4 flex-col gap-2 bg-white/10 hover:bg-white/20 border-0 text-white backdrop-blur-sm transition-all hover:scale-105"
-              onClick={() => setLocation('/inventory')}
+              onClick={() => setLocation('/inventory?action=new')}
             >
               <div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
                 <Package className="w-5 h-5 text-orange-400" />
               </div>
-              <span className="text-xs font-medium">Inventario</span>
+              <span className="text-xs font-medium">Nuevo Repuesto</span>
             </Button>
 
             {/* Registrar Compra - Solo Admin */}
@@ -127,6 +91,42 @@ export default function Reportes() {
                 <span className="text-xs font-medium">Nueva Compra</span>
               </Button>
             )}
+
+            {/* Nueva Orden */}
+            <Button
+              variant="secondary"
+              className="h-auto py-4 px-4 flex-col gap-2 bg-white/10 hover:bg-white/20 border-0 text-white backdrop-blur-sm transition-all hover:scale-105"
+              onClick={() => setLocation('/work-orders?action=new')}
+            >
+              <div className="w-10 h-10 rounded-xl bg-green-500/20 flex items-center justify-center">
+                <Wrench className="w-5 h-5 text-green-400" />
+              </div>
+              <span className="text-xs font-medium">Nueva Orden</span>
+            </Button>
+
+            {/* Venta Mostrador */}
+            <Button
+              variant="secondary"
+              className="h-auto py-4 px-4 flex-col gap-2 bg-white/10 hover:bg-white/20 border-0 text-white backdrop-blur-sm transition-all hover:scale-105"
+              onClick={() => setLocation('/counter-sales?action=new')}
+            >
+              <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                <Receipt className="w-5 h-5 text-blue-400" />
+              </div>
+              <span className="text-xs font-medium">Venta Mesón</span>
+            </Button>
+
+            {/* Ver Clientes -> Nuevo Cliente */}
+            <Button
+              variant="secondary"
+              className="h-auto py-4 px-4 flex-col gap-2 bg-white/10 hover:bg-white/20 border-0 text-white backdrop-blur-sm transition-all hover:scale-105"
+              onClick={() => setLocation('/clients?action=new')}
+            >
+              <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
+                <Users className="w-5 h-5 text-purple-400" />
+              </div>
+              <span className="text-xs font-medium">Nuevo Cliente</span>
+            </Button>
 
             {/* Ver Compras - Solo Admin */}
             {isAdmin && (

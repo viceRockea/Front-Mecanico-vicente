@@ -1,17 +1,29 @@
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Plus, Search, Loader2, ShoppingCart, Trash2, MoreHorizontal, Eye } from "lucide-react";
+import { Plus, Search, Loader2, ShoppingCart, Trash2, MoreHorizontal, Eye, Filter, RefreshCcw, ChevronDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePurchases, useDeletePurchase, Purchase } from "@/hooks/use-purchases";
 import { useProviders } from "@/hooks/use-providers";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
-import { DataTable } from "@/components/ui/data-table";
 import { createColumns, PurchaseWithTotals } from "@/components/purchases/columns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  flexRender,
+  SortingState,
+  ColumnFiltersState,
+  VisibilityState,
+} from "@tanstack/react-table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 export default function Purchases() {
   const { user } = useAuth();
@@ -19,256 +31,310 @@ export default function Purchases() {
   const { data: allPurchases = [], isLoading } = usePurchases();
   const { mutate: deletePurchaseMutation } = useDeletePurchase();
   const { toast } = useToast();
-
   const { data: providers = [] } = useProviders();
 
-  // Filtros state
+  // Estados de Tabla
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [rowSelection, setRowSelection] = useState({});
+
+  // Filtros manuales
   const [searchValue, setSearchValue] = useState("");
   const [supplierFilter, setSupplierFilter] = useState("all");
-  const [monthFilter, setMonthFilter] = useState("all");
-  const [yearFilter, setYearFilter] = useState("all");
 
-  // Selection state for Detail View
   const [selectedPurchase, setSelectedPurchase] = useState<PurchaseWithTotals | null>(null);
 
-  // Verificar si es ADMIN
-  const isAdmin = user?.role === "ADMIN" || user?.role === "administrador";
-
-  // 1. Transformar datos (calcular totales)
-  const purchasesWithTotals = useMemo(() => {
-    return allPurchases.map((p) => {
-      const subtotalNeto = p.detalles.reduce((sum, item) => {
-        const cantidad = item.cantidad || 0;
-        const precioUnitario = item.precio_costo_unitario || 0;
-        return sum + (cantidad * precioUnitario);
-      }, 0);
-
-      const ivaCalculado = Math.round(subtotalNeto * 0.19);
-      const totalCalculado = subtotalNeto + ivaCalculado;
-      const totalUnits = p.detalles.reduce((sum, item) => sum + (item.cantidad || 0), 0);
+  const purchasesWithTotals: PurchaseWithTotals[] = useMemo(() => {
+    return allPurchases.map(p => {
+      // CORRECCIÓN: Usar casting (d as any) para acceder a precio_unitario
+      const neto = p.detalles.reduce((acc, d) => acc + (d.cantidad * ((d as any).precio_unitario || 0)), 0);
+      const iva = Math.round(neto * 0.19);
+      const total = neto + iva;
+      const totalItems = p.detalles.length;
+      const totalUnits = p.detalles.reduce((acc, d) => acc + d.cantidad, 0);
 
       return {
         ...p,
-        totalItems: p.detalles.length,
-        totalUnits,
-        neto: subtotalNeto,
-        iva: ivaCalculado,
-        total: totalCalculado
-      } as PurchaseWithTotals;
+        neto,
+        iva,
+        total,
+        totalItems,
+        totalUnits
+      };
     });
   }, [allPurchases]);
 
-  // 2. Filtrar datos
   const filteredPurchases = useMemo(() => {
     return purchasesWithTotals.filter(p => {
-      const matchesSearch = searchValue === "" ||
-        p.proveedor.nombre.toLowerCase().includes(searchValue.toLowerCase()) ||
-        (p.numero_factura?.toLowerCase() || "").includes(searchValue.toLowerCase());
+      const searchLower = searchValue.toLowerCase();
+      // Casting seguro para propiedades que podrían faltar en la interfaz
+      const matchesSearch =
+        (p.proveedor?.nombre?.toLowerCase() || "").includes(searchLower) ||
+        ((p as any).numero_factura?.toLowerCase() || "").includes(searchLower) ||
+        ((p as any).folio?.toLowerCase() || "").includes(searchLower);
 
-      const matchesSupplier = supplierFilter === "all" ||
-        p.proveedor.nombre.toLowerCase().includes(supplierFilter.toLowerCase());
+      // Usar p.proveedor?.id
+      const matchesSupplier = supplierFilter === "all" || p.proveedor?.id === supplierFilter;
 
-      const date = new Date(p.fecha);
-      const matchesMonth = monthFilter === "all" || date.getMonth().toString() === monthFilter;
-      const matchesYear = yearFilter === "all" || date.getFullYear().toString() === yearFilter;
+      return matchesSearch && matchesSupplier;
+    });
+  }, [purchasesWithTotals, searchValue, supplierFilter]);
 
-      return matchesSearch && matchesSupplier && matchesMonth && matchesYear;
-    }).sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-  }, [purchasesWithTotals, searchValue, supplierFilter, monthFilter, yearFilter]);
-
-  // Handlers
   const handleDelete = (purchase: PurchaseWithTotals) => {
-    if (confirm(`¿Estás seguro de eliminar la compra de ${purchase.proveedor.nombre}?`)) {
+    if (confirm("¿Estás seguro de eliminar esta compra? Se revertirá el stock de los productos.")) {
       deletePurchaseMutation(purchase.id, {
-        onSuccess: () => {
-          toast({
-            title: "Compra eliminada",
-            description: `Compra de ${purchase.proveedor.nombre} eliminada correctamente`,
-            className: "bg-red-600 text-white border-none"
-          });
-        },
-        onError: (error: any) => {
-          toast({
-            title: "Error",
-            description: error?.message || "No se pudo eliminar la compra",
-            variant: "destructive"
-          });
-        }
+        onSuccess: () => toast({ title: "Compra eliminada y stock revertido" }),
+        onError: (err) => toast({ title: "Error al eliminar", description: err.message, variant: "destructive" })
       });
     }
   };
 
-  const handleView = (purchase: PurchaseWithTotals) => {
-    setSelectedPurchase(purchase);
-  };
+  const columns = useMemo(() => createColumns(
+    (p) => setSelectedPurchase(p),
+    (p) => handleDelete(p)
+  ), []);
 
-  const columns = useMemo(() => createColumns(handleView, handleDelete), []);
-
-  if (!isAdmin) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Acceso Denegado</h2>
-          <p className="text-muted-foreground">Solo los administradores pueden ver esta página.</p>
-        </div>
-      </div>
-    );
-  }
+  const table = useReactTable({
+    data: filteredPurchases,
+    columns,
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    onColumnVisibilityChange: setColumnVisibility,
+    onRowSelectionChange: setRowSelection,
+    state: {
+      sorting,
+      columnFilters,
+      columnVisibility,
+      rowSelection,
+    },
+  });
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Gestión de Compras"
-        description="Registre nuevas adquisiciones de stock y gestione proveedores."
+        title="Historial de Compras"
+        description="Gestiona las compras realizadas y el ingreso de stock."
         action={
-          <Button
-            className="btn-pill bg-primary shadow-lg shadow-primary/20"
-            onClick={() => setLocation("/purchases/create")}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Nueva Compra
+          <Button onClick={() => setLocation('/purchases/create')} className="gap-2 shadow-lg shadow-primary/20">
+            <Plus className="w-4 h-4" /> Nueva Compra
           </Button>
         }
       />
 
-      {/* Buscador principal */}
-      <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-        <Input
-          placeholder="Buscar por proveedor o número de factura..."
-          value={searchValue}
-          onChange={(e) => setSearchValue(e.target.value)}
-          className="bg-white border-slate-200 rounded-lg h-12 text-base pl-12 shadow-sm focus:border-primary focus:ring-primary/20"
-        />
-      </div>
+      {/* BARRA DE HERRAMIENTAS */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+        <div className="flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center">
+          
+          {/* Buscador */}
+          <div className="relative w-full lg:w-[350px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              placeholder="Buscar por proveedor..."
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+              className="pl-10 h-10 bg-slate-50 border-slate-200 focus:bg-white transition-colors"
+            />
+          </div>
 
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4 mb-6">
-        {/* Filtros */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-sm text-slate-600 font-medium">Filtrar por:</span>
-          <Select value={supplierFilter} onValueChange={setSupplierFilter}>
-            <SelectTrigger className="w-[220px] bg-slate-50 border-slate-200">
-              <SelectValue placeholder="Proveedor" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los Proveedores</SelectItem>
-              {providers.map((provider) => (
-                <SelectItem key={provider.id} value={provider.nombre}>
-                  {provider.nombre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={monthFilter} onValueChange={setMonthFilter}>
-            <SelectTrigger className="w-[180px] bg-slate-50 border-slate-200">
-              <SelectValue placeholder="Mes" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los Meses</SelectItem>
-              <SelectItem value="0">Enero</SelectItem>
-              <SelectItem value="1">Febrero</SelectItem>
-              <SelectItem value="2">Marzo</SelectItem>
-              <SelectItem value="3">Abril</SelectItem>
-              <SelectItem value="4">Mayo</SelectItem>
-              <SelectItem value="5">Junio</SelectItem>
-              <SelectItem value="6">Julio</SelectItem>
-              <SelectItem value="7">Agosto</SelectItem>
-              <SelectItem value="8">Septiembre</SelectItem>
-              <SelectItem value="9">Octubre</SelectItem>
-              <SelectItem value="10">Noviembre</SelectItem>
-              <SelectItem value="11">Diciembre</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={yearFilter} onValueChange={setYearFilter}>
-            <SelectTrigger className="w-[120px] bg-slate-50 border-slate-200">
-              <SelectValue placeholder="Año" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="2024">2024</SelectItem>
-              <SelectItem value="2025">2025</SelectItem>
-              <SelectItem value="2026">2026</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex flex-1 flex-col md:flex-row gap-3 w-full lg:w-auto items-center flex-wrap lg:justify-end">
+            
+            {/* Filtro Proveedor */}
+            <Select value={supplierFilter} onValueChange={setSupplierFilter}>
+              <SelectTrigger className="h-10 w-full md:w-[200px] bg-slate-50 border-dashed">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-3.5 h-3.5 text-slate-500" />
+                  <SelectValue placeholder="Proveedor" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {providers.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* BOTÓN COLUMNAS (AHORA AFUERA) */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="ml-auto h-10 bg-slate-50 border-dashed">
+                  Columnas <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {table
+                  .getAllColumns()
+                  .filter((column) => column.getCanHide())
+                  .map((column) => {
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={column.id}
+                        className="capitalize"
+                        checked={column.getIsVisible()}
+                        onCheckedChange={(value) =>
+                          column.toggleVisibility(!!value)
+                        }
+                      >
+                        {column.id}
+                      </DropdownMenuCheckboxItem>
+                    )
+                  })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {(searchValue || supplierFilter !== "all") && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => { setSearchValue(""); setSupplierFilter("all"); }}
+                className="h-10 w-10 text-slate-400 hover:text-rose-500"
+              >
+                <RefreshCcw className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-            <Loader2 className="w-8 h-8 animate-spin text-primary mb-2" />
-            <p>Cargando compras...</p>
-          </div>
-        ) : (
-          <DataTable
-            columns={columns}
-            data={filteredPurchases}
-          />
-        )}
+      {/* TABLA MANUAL */}
+      <div className="rounded-md border bg-white">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => {
+                  return (
+                    <TableHead key={header.id}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                    </TableHead>
+                  )
+                })}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+               <TableRow>
+                 <TableCell colSpan={columns.length} className="h-24 text-center">
+                   <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+                 </TableCell>
+               </TableRow>
+            ) : table.getRowModel().rows?.length ? (
+              table.getRowModel().rows.map((row) => (
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() && "selected"}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className="h-24 text-center"
+                >
+                  No hay resultados.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
       </div>
 
-      {/* Dialog Detalle */}
-      <Dialog open={!!selectedPurchase} onOpenChange={(open) => !open && setSelectedPurchase(null)}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+      {/* PAGINACIÓN */}
+      <div className="flex items-center justify-end space-x-2 py-4">
+        <div className="flex-1 text-sm text-muted-foreground">
+          {table.getFilteredSelectedRowModel().rows.length} de{" "}
+          {table.getFilteredRowModel().rows.length} fila(s) seleccionadas.
+        </div>
+        <div className="space-x-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+          >
+            Anterior
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+          >
+            Siguiente
+          </Button>
+        </div>
+      </div>
+
+      {/* DIALOGO DETALLE */}
+      <Dialog open={!!selectedPurchase} onOpenChange={(o) => !o && setSelectedPurchase(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Detalle de Compra</DialogTitle>
+          </DialogHeader>
           {selectedPurchase && (
             <>
-              <DialogHeader>
-                <DialogTitle className="text-2xl font-bold text-slate-900">
-                  Detalle de Compra
-                </DialogTitle>
-                <div className="text-sm text-slate-500 mt-1">
-                  {selectedPurchase.proveedor.nombre} • Doc: {selectedPurchase.numero_factura || "S/N"} • {new Date(selectedPurchase.fecha).toLocaleDateString('es-CL')}
-                </div>
-              </DialogHeader>
-
-              <div className="mt-6 space-y-6">
-                {/* Tabla de productos */}
+              <div className="flex justify-between items-start mb-6">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-3">
-                    Productos ({selectedPurchase.detalles.length})
-                  </h3>
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <table className="w-full">
-                      <thead className="bg-slate-50 border-b border-slate-200">
-                        <tr>
-                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Producto</th>
-                          <th className="text-center px-4 py-3 text-xs font-semibold text-slate-600 uppercase w-20">Cant.</th>
-                          <th className="text-right px-4 py-3 text-xs font-semibold text-slate-600 uppercase w-32">Precio Unit.</th>
-                          <th className="text-right px-4 py-3 text-xs font-semibold text-slate-600 uppercase w-32">Subtotal</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {selectedPurchase.detalles.map((item: any, idx: number) => (
-                          <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                            <td className="px-4 py-3">
-                              <div className="font-medium text-slate-900">
-                                {item.producto?.nombre || item.nombre || 'Producto'}
-                              </div>
-                              {item.producto?.sku && (
-                                <div className="text-xs text-slate-500 font-mono mt-0.5">
-                                  SKU: {item.producto.sku}
-                                </div>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-center text-sm font-medium text-slate-700">
-                              {item.cantidad}
-                            </td>
-                            <td className="px-4 py-3 text-right text-sm font-mono text-slate-700">
-                              ${(item.precio_costo_unitario || 0).toLocaleString('es-CL')}
-                            </td>
-                            <td className="px-4 py-3 text-right text-sm font-mono font-semibold text-slate-900">
-                              ${((item.cantidad || 0) * (item.precio_costo_unitario || 0)).toLocaleString('es-CL')}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <h3 className="text-xl font-bold text-slate-900">{selectedPurchase.proveedor?.nombre}</h3>
+                  {/* CORRECCIÓN: Casting para acceder a rut */}
+                  <p className="text-slate-500">{(selectedPurchase.proveedor as any)?.rut || "Sin RUT"}</p>
                 </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-slate-500">Fecha</p>
+                  <p className="text-slate-900">{new Date(selectedPurchase.fecha).toLocaleDateString('es-CL')}</p>
+                </div>
+              </div>
 
-                {/* Card de resumen */}
-                <div className="bg-slate-50 rounded-lg border border-slate-200 p-5">
-                  <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-4">
+              <div className="rounded-lg border border-slate-200 overflow-hidden mb-6">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4 text-left font-medium text-slate-600">Producto</th>
+                      <th className="py-3 px-4 text-right font-medium text-slate-600">Cantidad</th>
+                      <th className="py-3 px-4 text-right font-medium text-slate-600">Precio Unit.</th>
+                      <th className="py-3 px-4 text-right font-medium text-slate-600">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedPurchase.detalles.map((d, i) => (
+                      <tr key={i} className="border-b border-slate-100 last:border-0">
+                        <td className="py-3 px-4">
+                          <div className="font-medium text-slate-900">{d.producto?.nombre}</div>
+                          <div className="text-xs text-slate-500">{d.producto?.sku}</div>
+                        </td>
+                        <td className="py-3 px-4 text-right">{d.cantidad}</td>
+                        {/* CORRECCIÓN: Casting para precio_unitario */}
+                        <td className="py-3 px-4 text-right">${((d as any).precio_unitario || 0).toLocaleString('es-CL')}</td>
+                        <td className="py-3 px-4 text-right font-medium">${(d.cantidad * ((d as any).precio_unitario || 0)).toLocaleString('es-CL')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end">
+                <div className="w-1/3 bg-slate-50 p-4 rounded-lg">
+                  <h3 className="font-bold text-slate-700 mb-2 border-b border-slate-200 pb-2">
                     Resumen
                   </h3>
                   <div className="space-y-3">
@@ -302,5 +368,3 @@ export default function Purchases() {
     </div >
   );
 }
-
-

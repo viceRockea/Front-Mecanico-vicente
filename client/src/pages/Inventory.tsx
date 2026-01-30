@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { useToast } from "@/hooks/use-toast";
 import { useProducts, useDeleteProduct, useUpdateProduct } from "@/hooks/use-products";
@@ -28,6 +28,17 @@ export default function Inventory() {
   const [searchValue, setSearchValue] = useState("");
   const [stockFilter, setStockFilter] = useState("all"); // all, low, out
   const [categoryFilter, setCategoryFilter] = useState("all");
+
+  // Estado para controlar modal externo
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('action') === 'new') {
+      setIsCreateOpen(true);
+      window.history.replaceState({}, '', '/inventory');
+    }
+  }, []);
 
   // Derived Data: Filtered Products
   const filteredProducts = useMemo(() => {
@@ -116,7 +127,7 @@ export default function Inventory() {
       <PageHeader
         title="Inventario de Repuestos"
         description="Gestión avanzada de productos, stock y precios."
-        action={isAdmin ? <AddProductDialog /> : undefined}
+        action={isAdmin ? <AddProductDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} /> : undefined}
       />
 
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
@@ -483,4 +494,3 @@ function EditProductDialog({ product, open, onOpenChange, categories }: { produc
     </Dialog>
   );
 }
-

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { es } from "date-fns/locale";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -21,8 +21,18 @@ export default function CounterSales() {
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<"VENTA" | "PERDIDA" | "USO_INTERNO" | "all">("all");
-
   const { sales: allSales = [], isLoading } = useCounterSales();
+
+  // Estado elevado para controlar el modal desde la URL
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('action') === 'new') {
+      setIsCreateOpen(true);
+      window.history.replaceState({}, '', '/counter-sales');
+    }
+  }, []);
 
   // Filtrado
   let sales = allSales.filter(s => {
@@ -32,7 +42,7 @@ export default function CounterSales() {
     const matchesType = typeFilter === "all" || s.tipo_movimiento === typeFilter;
 
     // Filtro de fecha simple (YYYY-MM-DD)
-    const saleDate = new Date(s.fecha).toLocaleDateString('en-CA'); // Formato YYYY-MM-DD local
+    const saleDate = new Date(s.fecha).toLocaleDateString('en-CA');
     const matchesDate = dateFilter === "" || saleDate === dateFilter;
 
     return matchesSearch && matchesType && matchesDate;
@@ -48,7 +58,7 @@ export default function CounterSales() {
       <PageHeader
         title="Ventas Mostrador"
         description="Registra ventas directas, pérdidas y uso interno de inventario"
-        action={<CreateCounterSaleDialog />}
+        action={<CreateCounterSaleDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />}
       />
 
       {/* Buscador y Filtros */}
@@ -97,9 +107,6 @@ export default function CounterSales() {
                   locale={es}
                   onSelect={(date) => {
                     if (date) {
-                      // Ajustar a zona horaria local para evitar saltos de día
-                      // Usando el truco de reportes: toISOString split T, pero hay que tener ojo con UTC.
-                      // Mejor: usar sv-SE o en-CA que da YYYY-MM-DD local
                       const offset = date.getTimezoneOffset();
                       const localDate = new Date(date.getTime() - (offset * 60 * 1000));
                       setDateFilter(localDate.toISOString().split('T')[0]);
@@ -293,41 +300,71 @@ function ProductSelector({
               No se encontraron productos.
             </CommandEmpty>
             <CommandGroup heading="Resultados">
-              {products.map((product) => (
-                <CommandItem
-                  key={product.id}
-                  value={`${product.sku} ${product.nombre} ${product.marca}`}
-                  onSelect={() => {
-                    onChange(product.sku, product.precio_venta);
-                    setOpen(false);
-                  }}
-                  className="cursor-pointer py-3 px-4 data-[selected='true']:!bg-blue-50 data-[selected='true']:!text-slate-900 aria-selected:!bg-blue-50 aria-selected:!text-slate-900"
-                >
-                  <div className="flex items-center gap-3 w-full">
-                    <Check
-                      className={cn(
-                        "h-4 w-4 text-blue-600 transition-opacity",
-                        value === product.sku ? "opacity-100" : "opacity-0"
+              {products.map((product) => {
+                // 1. Verificar si hay stock
+                const hasStock = product.stock_actual > 0;
+
+                return (
+                  <CommandItem
+                    key={product.id}
+                    value={`${product.sku} ${product.nombre} ${product.marca}`}
+                    disabled={!hasStock} // 2. Deshabilitar si no hay stock
+                    onSelect={() => {
+                      if (hasStock) {
+                        onChange(product.sku, product.precio_venta);
+                        setOpen(false);
+                      }
+                    }}
+                    className={cn(
+                      "cursor-pointer py-3 px-4 transition-all",
+                      // Estilos normales si hay stock
+                      hasStock 
+                        ? "data-[selected='true']:!bg-blue-50 data-[selected='true']:!text-slate-900 aria-selected:!bg-blue-50 aria-selected:!text-slate-900" 
+                        // Estilos de deshabilitado si NO hay stock
+                        : "opacity-50 cursor-not-allowed bg-slate-50/50 grayscale"
+                    )}
+                  >
+                    <div className="flex items-center gap-3 w-full">
+                      {/* Icono cambia si está agotado */}
+                      {hasStock ? (
+                        <Check
+                          className={cn(
+                            "h-4 w-4 text-blue-600 transition-opacity",
+                            value === product.sku ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                      ) : (
+                        <Box className="h-4 w-4 text-slate-300" />
                       )}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-medium text-slate-900 truncate pr-2">{product.nombre}</span>
-                        <span className="font-mono text-xs font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
-                          {product.sku}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs text-slate-500">
-                        <span className="truncate">{product.marca}</span>
-                        <div className="flex items-center gap-3">
-                          <span>Stock: {product.stock_actual}</span>
-                          <span className="font-semibold text-slate-700">${product.precio_venta.toLocaleString('es-CL')}</span>
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className={cn("font-medium truncate pr-2", hasStock ? "text-slate-900" : "text-slate-500")}>
+                            {product.nombre}
+                          </span>
+                          <span className="font-mono text-xs font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+                            {product.sku}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs text-slate-500">
+                          <span className="truncate">{product.marca}</span>
+                          <div className="flex items-center gap-3">
+                            {/* 3. Indicador visual de Stock */}
+                            {hasStock ? (
+                              <span className="text-emerald-600 font-medium">Stock: {product.stock_actual}</span>
+                            ) : (
+                              <span className="text-red-500 font-bold flex items-center gap-1 bg-red-50 px-1.5 rounded">
+                                AGOTADO
+                              </span>
+                            )}
+                            <span className="font-semibold text-slate-700">${product.precio_venta.toLocaleString('es-CL')}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </CommandItem>
-              ))}
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
           </CommandList>
         </Command>
@@ -336,8 +373,8 @@ function ProductSelector({
   );
 }
 
-function CreateCounterSaleDialog() {
-  const [open, setOpen] = useState(false);
+// Dialog ahora recibe props para el estado
+function CreateCounterSaleDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [tipoMovimiento, setTipoMovimiento] = useState<"VENTA" | "PERDIDA" | "USO_INTERNO">("VENTA");
   const [vendedor, setVendedor] = useState("");
   const [comentario, setComentario] = useState("");
@@ -423,7 +460,7 @@ function CreateCounterSaleDialog() {
       setVendedor("");
       setComentario("");
       setItems([{ sku: "", cantidad: 1, precio_venta: 0 }]);
-      setOpen(false);
+      onOpenChange(false);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -434,7 +471,7 @@ function CreateCounterSaleDialog() {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
         <Button className="btn-pill gap-2">
           <Plus className="w-4 h-4" />
